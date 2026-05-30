@@ -15,6 +15,7 @@ import type { Tool, JsonSchema } from "../types.js";
 import type {
   MCPTransport,
   JSONRPCMessage,
+  JSONRPCRequest,
   JSONRPCResponse,
   JSONRPCNotification,
 } from "./types.js";
@@ -127,7 +128,13 @@ export class MCPClient {
       }, timeout);
 
       this.pending.set(id, { resolve, reject, timer });
-      this.transport.send(msg).catch(reject);
+      this.transport.send(msg).catch((err) => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(id);
+        pending.reject(err instanceof Error ? err : new Error(String(err)));
+      });
     });
   }
 
@@ -140,7 +147,13 @@ export class MCPClient {
   }
 
   private _handleMessage(msg: JSONRPCMessage): void {
-    // Only handle responses — notifications from server are ignored for now
+    // Server-initiated request — respond so the server doesn't hang
+    if (this._isServerRequest(msg)) {
+      this._respondUnsupported(msg.id, msg.method);
+      return;
+    }
+
+    // Response to a client-initiated request
     if (!("id" in msg) || !("result" in msg || "error" in msg)) {
       return;
     }
@@ -159,6 +172,32 @@ export class MCPClient {
     } else {
       pending.resolve(resp.result);
     }
+  }
+
+  private _isServerRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
+    return (
+      "method" in msg &&
+      "id" in msg &&
+      msg.id != null &&
+      !("result" in msg) &&
+      !("error" in msg)
+    );
+  }
+
+  private _respondUnsupported(id: number | string, method: string): void {
+    const msg: JSONRPCResponse = {
+      jsonrpc: "2.0",
+      id,
+      error: {
+        code: -32601,
+        message: `Method not supported by client: ${method}`,
+      },
+    };
+    this.transport.send(msg).catch((err) => {
+      process.stderr.write(
+        `[ds-forge MCP] Failed to send response for '${method}': ${err.message}\n`,
+      );
+    });
   }
 
   private _handleError(err: Error): void {

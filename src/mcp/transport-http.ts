@@ -73,10 +73,7 @@ export class HTTPTransport implements MCPTransport {
       if (sid) this.sessionId = sid;
 
       if (!resp.ok) {
-        this.cbs?.onError(
-          new Error(`HTTP ${resp.status}: ${resp.statusText}`),
-        );
-        return;
+        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
 
       const contentType = resp.headers.get("Content-Type") ?? "";
@@ -90,10 +87,9 @@ export class HTTPTransport implements MCPTransport {
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") {
-        this.cbs?.onError(new Error("Request timed out"));
-      } else {
-        this.cbs?.onError(err as Error);
+        throw new Error("Request timed out");
       }
+      throw err;
     } finally {
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
@@ -124,7 +120,7 @@ export class HTTPTransport implements MCPTransport {
             const msg = JSON.parse(data) as JSONRPCMessage;
             this.cbs?.onMessage(msg);
           } catch {
-            this.cbs?.onError(new Error(`Unparseable SSE data: ${data.slice(0, 200)}`));
+            throw new Error(`Unparseable SSE data: ${data.slice(0, 200)}`);
           }
         }
         eventType = "";

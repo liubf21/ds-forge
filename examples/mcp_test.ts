@@ -349,6 +349,74 @@ async function test_http_transport() {
   }
 }
 
+async function test_http_failure_fast() {
+  const http = await import("node:http");
+  const server = http.createServer((_req, res) => {
+    res.writeHead(500);
+    res.end("Internal Server Error");
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const port = (server.address() as { port: number }).port;
+
+  try {
+    const transport = new HTTPTransport({
+      url: `http://localhost:${port}`,
+      timeout: 5000,
+    });
+    const mcp = new MCPClient(transport);
+
+    const start = Date.now();
+    await assert.rejects(
+      () => mcp.connect(),
+      (err: Error) => err.message.includes("HTTP 500"),
+    );
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 2000, `Expected fast failure, took ${elapsed}ms`);
+  } finally {
+    server.close();
+  }
+}
+
+async function test_server_request() {
+  const sent: Array<Record<string, unknown>> = [];
+  const transport = {
+    cbs: null as {
+      onMessage(msg: unknown): void;
+      onError(err: Error): void;
+      onClose(): void;
+    } | null,
+    setCallbacks(cb: typeof transport.cbs) {
+      this.cbs = cb;
+    },
+    async start() {},
+    async send(msg: Record<string, unknown>) {
+      sent.push(msg);
+    },
+    async close() {},
+  };
+
+  const mcp = new MCPClient(transport as any);
+  transport.cbs!.onMessage({
+    jsonrpc: "2.0",
+    id: 42,
+    method: "ping",
+    params: {},
+  });
+
+  await new Promise((r) => setTimeout(r, 10));
+
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].id, 42);
+  assert.ok("error" in sent[0]);
+  assert.strictEqual((sent[0].error as { code: number }).code, -32601);
+  assert.ok(
+    String((sent[0].error as { message: string }).message).includes("ping"),
+  );
+
+  await mcp.close();
+}
+
 // Minimal HTTP MCP server — same logic as echo server, over HTTP
 async function startHttpEchoServer(): Promise<{ port: number; close(): void }> {
   const http = await import("node:http");
@@ -556,6 +624,8 @@ async function main() {
   await check("concurrent tool calls", test_concurrent_calls)();
   await check("request timeout", test_timeout)();
   await check("HTTP transport", test_http_transport)();
+  await check("HTTP failure fast-fail", test_http_failure_fast)();
+  await check("server-initiated request", test_server_request)();
   await check("E2E Forge + MCP (mocked model)", test_e2e_forge_mcp)();
 
   console.log(`\n${passed} passed, ${failed} failed, ${passed + failed} total`);
