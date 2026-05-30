@@ -52,20 +52,17 @@ export class HTTPTransport implements MCPTransport {
     const timeout = this.config.timeout ?? 30_000;
     const timeoutAbort = new AbortController();
     const timer = setTimeout(() => timeoutAbort.abort(), timeout);
-
-    // Combine our abort controller with the timeout
-    const signal = this.controller.signal;
-    const combinedSignal = timeoutAbort.signal;
-    // Listen for either abort
-    const onAbort = () => timeoutAbort.abort();
-    signal.addEventListener("abort", onAbort, { once: true });
+    const signal = AbortSignal.any([
+      this.controller.signal,
+      timeoutAbort.signal,
+    ]);
 
     try {
       const resp = await fetch(this.config.url, {
         method: "POST",
         headers,
         body: JSON.stringify(msg),
-        signal: combinedSignal,
+        signal,
       });
 
       // Capture session ID if present
@@ -87,12 +84,14 @@ export class HTTPTransport implements MCPTransport {
       }
     } catch (err) {
       if ((err as Error).name === "AbortError") {
-        throw new Error("Request timed out");
+        if (timeoutAbort.signal.aborted && !this.controller.signal.aborted) {
+          throw new Error("Request timed out");
+        }
+        throw new Error("Request aborted");
       }
       throw err;
     } finally {
       clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
     }
   }
 

@@ -144,16 +144,10 @@ export class Context {
     while (this.tokenCount() > limit) {
       const idx = this.messages.findIndex((m) => m.role !== "system");
       if (idx === -1) {
-        // Only system messages remain — truncate content
-        if (this.messages[0]?.role === "system" && this.messages[0].content) {
-          const overage = this.tokenCount() - limit;
-          const trim = Math.min(
-            this.messages[0].content.length,
-            Math.max(overage * 4 + 100, 100),
-          );
-          this.messages[0].content = this.messages[0].content.slice(0, -trim) || "";
-        }
-        break;
+        throw new Error(
+          `Context exceeds maxTokens (${limit}): only system message(s) remain (~${this.tokenCount()} tokens). ` +
+            "Shorten the system prompt or raise maxTokens.",
+        );
       }
       this.messages.splice(idx, 1);
     }

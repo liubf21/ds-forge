@@ -103,7 +103,7 @@ ctx.tokenCounter = (msgs) => myAccurateCounter(msgs);
 
 ### 6. 截断是 FIFO，保留 system
 
-每次 API 调用前，`truncate()` 删除最旧非 system 消息，直到估算 token 数 fit `maxTokens`。若仅 system 消息就超限，则截断其 content。这是刻意保持简单：ds-forge 默认使用保守的 128K 预算，即使 DeepSeek V4 官方服务支持 1M context；长轨迹任务可显式调高 `maxTokens`。
+每次 API 调用前，`truncate()` 删除最旧非 system 消息，直到估算 token 数 fit `maxTokens`。若只剩 system 仍超限，则抛错——应缩短 system prompt 或提高 `maxTokens`。默认 128K 保守预算；长轨迹可显式调高 `maxTokens`。
 
 ### 7. `bashTool` 是完整 shell，不是沙箱
 

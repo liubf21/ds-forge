@@ -97,7 +97,7 @@ When a tool call fails (JSON parse error, execution exception, unknown tool name
 
 ### 6. Truncation is FIFO, system-preserving
 
-Before every API call, `truncate()` removes the oldest non-system message until the estimated token count fits `maxTokens`. If even the system message alone exceeds the limit, its content is truncated. This is intentionally crude: ds-forge defaults to a conservative 128K budget even though DeepSeek V4 can serve 1M context, and callers can raise `maxTokens` for long-horizon runs.
+Before every API call, `truncate()` removes the oldest non-system message until the estimated token count fits `maxTokens`. If only system message(s) remain and still exceed the limit, it throws — shorten the system prompt or raise `maxTokens`. Default budget is a conservative 128K even though DeepSeek V4 can serve 1M context; callers can raise `maxTokens` for long-horizon runs.
 
 ### 7. `bashTool` is full shell access, not a sandbox
 
