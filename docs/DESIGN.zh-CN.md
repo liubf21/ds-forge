@@ -105,6 +105,14 @@ ctx.tokenCounter = (msgs) => myAccurateCounter(msgs);
 
 每次 API 调用前，`truncate()` 删除最旧非 system 消息，直到估算 token 数 fit `maxTokens`。若仅 system 消息就超限，则截断其 content。这是刻意保持简单：ds-forge 默认使用保守的 128K 预算，即使 DeepSeek V4 官方服务支持 1M context；长轨迹任务可显式调高 `maxTokens`。
 
+### 7. `bashTool` 是完整 shell，不是沙箱
+
+`bashTool` 通过 `child_process.exec` 执行任意 shell 字符串。仅有 **cwd**、**timeout**、**maxOutput** 三类约束，**没有**命令 allowlist：对 shell 字符串做启发式过滤不是权限模型，只会带来虚假安全感。
+
+适用场景：用户主动授权的本地开发 Agent（TUI、`examples/agent.ts`）。缓解手段是运维层面的（限定 cwd、system prompt 提醒破坏性命令），而非在 bash 上打补丁。
+
+若面向不可信 prompt 或多租户，应增加结构化工具（`read_file`、`list_dir`、`grep` 等），用类型化参数和受控实现；未来的 `safeFsTools()` 应与 `bashTool` 并列，而不是塞进 bash。
+
 ## 数据流
 
 ### 单轮（`chat`）

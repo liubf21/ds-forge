@@ -8,16 +8,6 @@ export interface BashOptions {
   maxOutput?: number;
   /** Working directory for commands. */
   cwd?: string;
-  /** Whitelist of allowed commands. If set, only these executables can run. */
-  allowlist?: string[];
-}
-
-/** Extract the base command name from a shell string. */
-function baseCommand(cmd: string): string {
-  const trimmed = cmd.trim().replace(/^\S+\s+.*/, (m) => m.split(/\s+/)[0] ?? m);
-  // Handle pipelines — take the first segment
-  const first = trimmed.split("|")[0]?.trim() ?? trimmed;
-  return first.split(/\s+/)[0] ?? first;
 }
 
 export function bashTool(opts: BashOptions = {}) {
@@ -25,35 +15,27 @@ export function bashTool(opts: BashOptions = {}) {
     timeout = 30_000,
     maxOutput = 20_000,
     cwd,
-    allowlist,
   } = opts;
 
   return tool({
     name: "bash",
-    description: `Execute a shell command. Returns stdout + stderr.
+    description: `Run a shell command. Full shell access (child_process.exec) — not sandboxed.
 
 Working directory: ${cwd ?? "current directory"}
 Timeout: ${timeout}ms
-${allowlist ? `Allowed commands: ${allowlist.join(", ")}` : "Any command is allowed."}`,
+Max output: ${maxOutput} characters`,
     parameters: {
       type: "object",
       properties: {
         command: {
           type: "string",
-          description: "The shell command to execute. Use pipes, redirects, etc.",
+          description: "Shell command to execute (pipes, redirects, etc. allowed).",
         },
       },
       required: ["command"],
     },
     execute: async (args) => {
       const cmd = String(args.command);
-
-      if (allowlist && allowlist.length > 0) {
-        const name = baseCommand(cmd);
-        if (!allowlist.includes(name)) {
-          return `Error: command '${name}' not in allowlist. Allowed: ${allowlist.join(", ")}`;
-        }
-      }
 
       return new Promise<string>((resolve) => {
         const child = exec(cmd, { cwd, timeout, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {

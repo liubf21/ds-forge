@@ -164,6 +164,16 @@ session.clear();                         // new trajectory + reset context
 AgentSession.open({ cwd, system: "You are a security reviewer." });
 ```
 
+### `bashTool`
+
+Full shell access via `child_process.exec` — **not sandboxed**. Options: `cwd`, `timeout`, `maxOutput`. No command allowlist; see DESIGN.md §7. For constrained environments, register structured tools instead of patching bash.
+
+```typescript
+import { bashTool } from "ds-forge";
+
+forge.tools.register(bashTool({ cwd: "/my/project", timeout: 60_000 }));
+```
+
 ## Patterns
 
 ### Tool with validation

@@ -99,6 +99,14 @@ When a tool call fails (JSON parse error, execution exception, unknown tool name
 
 Before every API call, `truncate()` removes the oldest non-system message until the estimated token count fits `maxTokens`. If even the system message alone exceeds the limit, its content is truncated. This is intentionally crude: ds-forge defaults to a conservative 128K budget even though DeepSeek V4 can serve 1M context, and callers can raise `maxTokens` for long-horizon runs.
 
+### 7. `bashTool` is full shell access, not a sandbox
+
+`bashTool` runs arbitrary shell strings via `child_process.exec`. Controls are **cwd**, **timeout**, and **maxOutput** only. There is no command allowlist: string filtering on shell input is not a permission model and creates false confidence.
+
+Target use case: local dev agents (TUI, `examples/agent.ts`) where the user knowingly grants shell access. Mitigations are operational (cwd scope, prompts that warn about destructive commands), not cryptographic.
+
+For untrusted prompts or multi-tenant deployments, do not patch bash — add structured tools (`read_file`, `list_dir`, `grep`, …) with typed parameters and controlled implementations. A future `safeFsTools()` preset would live beside `bashTool`, not inside it.
+
 ## Data Flow
 
 ### Single turn (`chat`)

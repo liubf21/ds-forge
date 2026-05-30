@@ -174,6 +174,16 @@ session.clear();                         // 新建 trajectory 并重置 context
 AgentSession.open({ cwd, system: "You are a security reviewer." });
 ```
 
+### `bashTool`
+
+通过 `child_process.exec` 提供**完整 shell 权限**，**非沙箱**。可配置：`cwd`、`timeout`、`maxOutput`。无命令 allowlist；见 DESIGN.md §7。需要受限环境时，请注册结构化工具，不要在 bash 字符串上打补丁。
+
+```typescript
+import { bashTool } from "ds-forge";
+
+forge.tools.register(bashTool({ cwd: "/my/project", timeout: 60_000 }));
+```
+
 ## 常见模式
 
 ### 带校验的工具
