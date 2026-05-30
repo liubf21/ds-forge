@@ -5,7 +5,25 @@ import {
   formatToolStatus,
   truncateLine,
 } from "./display.js";
+import { fileUrl, linkText } from "./links.js";
 import type { AssistantMessage } from "./types.js";
+
+export function FileLink({
+  path,
+  label,
+  dimColor = true,
+}: {
+  path: string;
+  label?: string;
+  dimColor?: boolean;
+}) {
+  const shown = label ?? path;
+  return (
+    <Text wrap="wrap" dimColor={dimColor}>
+      {linkText(fileUrl(path), shown)}
+    </Text>
+  );
+}
 
 export function UserBubble({ content }: { content: string }) {
   return (

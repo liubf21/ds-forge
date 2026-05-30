@@ -3,9 +3,9 @@ import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { AgentSession } from "../src/agent-session.js";
 import { trajectoryLabel } from "../src/agent-session.js";
-import { AssistantBubble, UserBubble } from "./components.js";
+import { AssistantBubble, FileLink, UserBubble } from "./components.js";
 import { chatReducer, visibleHistory } from "./chat-state.js";
-import { applyEvent, truncateLine } from "./display.js";
+import { applyEvent } from "./display.js";
 import { historyFromContext } from "./history.js";
 import type { LiveTurn } from "./types.js";
 
@@ -113,21 +113,21 @@ export default function App({ session, maxTurns }: Props) {
   });
 
   const { hidden, items: messages } = visibleHistory(history);
-  const cwd = session.cwd;
 
   return (
     <Box flexDirection="column" height="100%">
       <Box
+        flexDirection="column"
         borderStyle="single"
         borderColor="gray"
         paddingX={1}
         marginBottom={1}
-        justifyContent="space-between"
       >
-        <Text bold>ds-forge</Text>
-        <Text dimColor>
-          {trajLabel} · {truncateLine(cwd, 32)}
-        </Text>
+        <Box justifyContent="space-between">
+          <Text bold>ds-forge</Text>
+          <FileLink path={session.trajPath} label={trajLabel} />
+        </Box>
+        <FileLink path={session.cwd} />
       </Box>
 
       <Box flexDirection="column" flexGrow={1} overflow="hidden">

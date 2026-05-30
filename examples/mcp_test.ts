@@ -3,7 +3,7 @@
  * MCP test suite. Zero external deps — uses Node assert.
  *
  * Run:
- *   npx tsx examples/mcp_test.ts
+ * Run: npm run test (via root test suite)
  *
  * Each section is a self-contained test block. Failures print
  * the test name and abort. Passes are silent by default; use

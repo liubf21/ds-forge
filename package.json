@@ -33,7 +33,7 @@
     "typecheck:tui": "tsc --noEmit -p tsconfig.tui.json",
     "demo": "tsx --env-file-if-exists=.env examples/demo.ts",
     "demo:mcp": "tsx --env-file-if-exists=.env examples/mcp_demo.ts",
-    "test:mcp": "tsx examples/mcp_test.ts",
+    "test": "tsx examples/mcp_test.ts && tsx tui/tui_test.ts",
     "tui": "tsx --env-file-if-exists=.env tui/index.tsx",
     "dev": "tsx --env-file-if-exists=.env"
   },
