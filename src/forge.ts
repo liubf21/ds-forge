@@ -16,6 +16,19 @@ const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 const DEFAULT_MODEL = "deepseek-chat";
 const DEFAULT_MAX_TURNS = 10;
 
+function mapToolCalls(
+  raw: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
+): ToolCall[] {
+  return raw.map((tc) => ({
+    id: tc.id,
+    type: "function" as const,
+    function: {
+      name: tc.function.name,
+      arguments: tc.function.arguments,
+    },
+  }));
+}
+
 export class Forge {
   readonly model: string;
   readonly client: OpenAI;
@@ -52,14 +65,12 @@ export class Forge {
     }
   }
 
-  // ── single turn ──────────────────────────────────────────
+  // ── model step (shared by chat / run) ────────────────────
 
-  async chat(message: string, extra?: Record<string, unknown>): Promise<string> {
-    this.context.addUser(message);
-    return this._send(extra);
-  }
-
-  private async _send(extra?: Record<string, unknown>): Promise<string> {
+  private async _callModel(extra?: Record<string, unknown>): Promise<{
+    content: string | null;
+    toolCalls: ToolCall[] | null;
+  }> {
     this.context.truncate();
 
     const toolSpecs = this.tools.toOpenAISpecs();
@@ -73,24 +84,47 @@ export class Forge {
     });
 
     const msg = response.choices[0]!.message;
+    const toolCalls = msg.tool_calls?.length
+      ? mapToolCalls(msg.tool_calls)
+      : null;
 
-    if (msg.tool_calls && msg.tool_calls.length > 0) {
-      const toolCalls = msg.tool_calls.map(
-        (tc): ToolCall => ({
-          id: tc.id,
-          type: "function" as const,
-          function: {
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          },
-        }),
-      );
-      this.context.addAssistant(msg.content, toolCalls);
-      return JSON.stringify(toolCalls, null, 2);
+    return { content: msg.content, toolCalls };
+  }
+
+  /** One model turn: call API, record assistant message. */
+  private async _step(extra?: Record<string, unknown>): Promise<ToolCall[] | null> {
+    const { content, toolCalls } = await this._callModel(extra);
+    this.context.addAssistant(content, toolCalls ?? undefined);
+    return toolCalls;
+  }
+
+  private async _executeToolCalls(toolCalls: ToolCall[]): Promise<void> {
+    for (const tc of toolCalls) {
+      let args: Record<string, unknown>;
+      try {
+        args = JSON.parse(tc.function.arguments);
+      } catch {
+        this.context.addToolResult(
+          tc.id,
+          `Error parsing tool arguments: ${tc.function.arguments}`,
+          tc.function.name,
+        );
+        continue;
+      }
+
+      const result = await this.tools.execute(tc.function.name, args);
+      this.context.addToolResult(tc.id, result, tc.function.name);
     }
+  }
 
-    this.context.addAssistant(msg.content);
-    return msg.content || "";
+  // ── single turn ──────────────────────────────────────────
+
+  async chat(message: string, extra?: Record<string, unknown>): Promise<string> {
+    this.context.addUser(message);
+    const toolCalls = await this._step(extra);
+    return toolCalls
+      ? JSON.stringify(toolCalls, null, 2)
+      : (this.context.last()?.content ?? "");
   }
 
   // ── agent loop ───────────────────────────────────────────
@@ -105,55 +139,11 @@ export class Forge {
     }
 
     for (let turn = 0; turn < maxTurns; turn++) {
-      this.context.truncate();
-
-      const toolSpecs = this.tools.toOpenAISpecs();
-      const tools = toolSpecs.length > 0 ? toolSpecs : undefined;
-
-      const response = await this.client.chat.completions.create({
-        model: this.model,
-        messages: this.context.toList() as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-        tools,
-        ...extra,
-      });
-
-      const msg = response.choices[0]!.message;
-
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
-        const toolCalls: ToolCall[] = msg.tool_calls.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: {
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          },
-        }));
-        this.context.addAssistant(msg.content, toolCalls);
-
-        for (const tc of msg.tool_calls) {
-          const name = tc.function.name;
-          let args: Record<string, unknown>;
-          try {
-            args = JSON.parse(tc.function.arguments);
-          } catch {
-            this.context.addToolResult(
-              tc.id,
-              `Error parsing tool arguments: ${tc.function.arguments}`,
-              name,
-            );
-            continue;
-          }
-
-          const result = await this.tools.execute(name, args);
-          this.context.addToolResult(tc.id, result, name);
-        }
-
-        continue;
+      const toolCalls = await this._step(extra);
+      if (!toolCalls) {
+        return this.context.last()?.content ?? "";
       }
-
-      // No tool calls — model is done
-      this.context.addAssistant(msg.content);
-      return msg.content || "";
+      await this._executeToolCalls(toolCalls);
     }
 
     return "[Max turns reached]";
@@ -244,15 +234,8 @@ export class Forge {
     return {
       role: rawMsg.role,
       content: rawMsg.content,
-      tool_calls: rawMsg.tool_calls
-        ? rawMsg.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: "function" as const,
-            function: {
-              name: tc.function.name,
-              arguments: tc.function.arguments,
-            },
-          }))
+      tool_calls: rawMsg.tool_calls?.length
+        ? mapToolCalls(rawMsg.tool_calls)
         : null,
     };
   }

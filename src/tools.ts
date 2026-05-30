@@ -1,21 +1,22 @@
 import type { Tool, ToolDef, OpenAICompatibleToolSpec } from "./types.js";
 
-export function tool(def: ToolDef & { execute: Tool["execute"] }): Tool {
+export function toolToOpenAISpec(tool: ToolDef): OpenAICompatibleToolSpec {
+  return {
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    },
+  };
+}
+
+export function tool(def: Tool): Tool {
   return {
     name: def.name,
     description: def.description,
     parameters: def.parameters,
     execute: def.execute,
-    toOpenAISpec(): OpenAICompatibleToolSpec {
-      return {
-        type: "function",
-        function: {
-          name: def.name,
-          description: def.description,
-          parameters: def.parameters,
-        },
-      };
-    },
   };
 }
 
@@ -31,7 +32,7 @@ export class ToolRegistry {
   }
 
   toOpenAISpecs(): OpenAICompatibleToolSpec[] {
-    return Array.from(this.tools.values(), (t) => t.toOpenAISpec());
+    return Array.from(this.tools.values(), toolToOpenAISpec);
   }
 
   async execute(name: string, args: Record<string, unknown>): Promise<string> {

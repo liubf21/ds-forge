@@ -80,7 +80,7 @@ const myTool = tool({
 });
 ```
 
-A `Tool` also has `toOpenAISpec()` which returns the OpenAI-compatible function spec.
+Use `ToolRegistry.toOpenAISpecs()` when you need OpenAI-format tool specs (e.g. custom API calls).
 
 ### `ToolRegistry`
 
@@ -129,7 +129,7 @@ s.validateTools(registry);    // check tool names match registered callables
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.1.0",
   "model": "deepseek-chat",
   "system": "You are helpful.",
   "tools": [

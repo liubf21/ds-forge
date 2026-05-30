@@ -4,6 +4,7 @@ import { messageToDict } from "./context.js";
 import type { MessageDict, OpenAICompatibleToolSpec } from "./types.js";
 import type { Forge } from "./forge.js";
 import type { ToolRegistry } from "./tools.js";
+import { VERSION } from "./version.js";
 
 export interface SessionData {
   version: string;
@@ -21,7 +22,7 @@ export class Session {
     public messages: MessageDict[],
     public toolSpecs: OpenAICompatibleToolSpec[],
     public metadata: Record<string, unknown> = {},
-    public version: string = "0.2.0",
+    public version: string = VERSION,
   ) {}
 
   static fromForge(forge: Forge): Session {

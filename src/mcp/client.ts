@@ -12,6 +12,7 @@
 
 import { tool } from "../tools.js";
 import type { Tool, JsonSchema } from "../types.js";
+import { VERSION } from "../version.js";
 import type {
   MCPTransport,
   JSONRPCMessage,
@@ -24,7 +25,7 @@ import type {
 
 const PROTOCOL_VERSION = "2024-11-05";
 const CLIENT_NAME = "ds-forge";
-const CLIENT_VERSION = "0.1.0";
+const CLIENT_VERSION = VERSION;
 const DEFAULT_TIMEOUT = 30_000;
 
 // ── Pending request tracker ───────────────────────────────────────
