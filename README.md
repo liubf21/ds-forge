@@ -62,6 +62,7 @@ const forge = new Forge({
 |---|---|
 | `chat(message, extra?)` | Single turn. Returns text, tool calls rendered as JSON. |
 | `run(message?, maxTurns?, extra?)` | Agent loop. Auto-executes tools, feeds results back. Stops when the model is done or `maxTurns` (default 10) is reached. |
+| `runStream(message?, maxTurns?, extra?)` | Same as `run`, but yields `StreamEvent` chunks (text deltas, tool calls, results). |
 | `resume(message?, maxTurns?, extra?)` | Alias for `run` — semantic clarity for loaded sessions. |
 | `save(path)` | Persist conversation to a JSON file. |
 | `Forge.load(path, config?)` | Reconstruct from a saved session. Tools must be re-provided (callables can't be serialized). |
@@ -209,6 +210,7 @@ await forge.resume("Now check Tokyo too.");
 npm run demo        # needs DEEPSEEK_API_KEY in .env
 npm run demo:mcp    # MCP playground
 npm run test:mcp    # no API key
+npm run tui         # Agent TUI (terminal chat)
 ```
 
 ## Further reading

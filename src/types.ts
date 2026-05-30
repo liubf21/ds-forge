@@ -77,3 +77,11 @@ export class ForgeError extends Error {
     this.name = "ForgeError";
   }
 }
+
+/** Events emitted by `Forge.runStream()`. */
+export type StreamEvent =
+  | { type: "text_delta"; delta: string }
+  | { type: "tool_call_start"; id: string; name: string; arguments: string }
+  | { type: "tool_result"; id: string; name: string; result: string }
+  | { type: "turn_done"; content: string }
+  | { type: "error"; message: string };

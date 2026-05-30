@@ -8,6 +8,7 @@ import type {
   ForgeLoadConfig,
   ForgeDebugConfig,
   MessageDict,
+  StreamEvent,
   Tool,
   ToolCall,
 } from "./types.js";
@@ -100,21 +101,23 @@ export class Forge {
 
   private async _executeToolCalls(toolCalls: ToolCall[]): Promise<void> {
     for (const tc of toolCalls) {
-      let args: Record<string, unknown>;
-      try {
-        args = JSON.parse(tc.function.arguments);
-      } catch {
-        this.context.addToolResult(
-          tc.id,
-          `Error parsing tool arguments: ${tc.function.arguments}`,
-          tc.function.name,
-        );
-        continue;
-      }
-
-      const result = await this.tools.execute(tc.function.name, args);
-      this.context.addToolResult(tc.id, result, tc.function.name);
+      await this._executeOneToolCall(tc);
     }
+  }
+
+  private async _executeOneToolCall(tc: ToolCall): Promise<string> {
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(tc.function.arguments);
+    } catch {
+      const err = `Error parsing tool arguments: ${tc.function.arguments}`;
+      this.context.addToolResult(tc.id, err, tc.function.name);
+      return err;
+    }
+
+    const result = await this.tools.execute(tc.function.name, args);
+    this.context.addToolResult(tc.id, result, tc.function.name);
+    return result;
   }
 
   // ── single turn ──────────────────────────────────────────
@@ -155,6 +158,130 @@ export class Forge {
     extra?: Record<string, unknown>,
   ): Promise<string> {
     return this.run(message, maxTurns, extra);
+  }
+
+  // ── streaming agent loop ─────────────────────────────────
+
+  private async *_callModelStream(
+    extra?: Record<string, unknown>,
+  ): AsyncGenerator<StreamEvent, { content: string | null; toolCalls: ToolCall[] | null }> {
+    this.context.truncate();
+
+    const toolSpecs = this.tools.toOpenAISpecs();
+    const tools = toolSpecs.length > 0 ? toolSpecs : undefined;
+
+    const stream = await this.client.chat.completions.create({
+      model: this.model,
+      messages: this.context.toList() as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+      tools,
+      ...extra,
+      stream: true,
+    });
+
+    let content = "";
+    const acc = new Map<number, { id: string; name: string; arguments: string }>();
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (!delta) continue;
+
+      if (delta.content) {
+        content += delta.content;
+        yield { type: "text_delta", delta: delta.content };
+      }
+
+      if (delta.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index;
+          let entry = acc.get(idx);
+          if (!entry) {
+            entry = { id: "", name: "", arguments: "" };
+            acc.set(idx, entry);
+          }
+          if (tc.id) entry.id = tc.id;
+          if (tc.function?.name) entry.name = tc.function.name;
+          if (tc.function?.arguments) entry.arguments += tc.function.arguments;
+        }
+      }
+    }
+
+    const toolCalls =
+      acc.size > 0
+        ? [...acc.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([, v]) => ({
+              id: v.id,
+              type: "function" as const,
+              function: { name: v.name, arguments: v.arguments },
+            }))
+        : null;
+
+    return { content: content || null, toolCalls };
+  }
+
+  private async *_stepStream(
+    extra?: Record<string, unknown>,
+  ): AsyncGenerator<StreamEvent, ToolCall[] | null> {
+    const gen = this._callModelStream(extra);
+    let next = await gen.next();
+    while (!next.done) {
+      yield next.value;
+      next = await gen.next();
+    }
+
+    const { content, toolCalls } = next.value;
+    this.context.addAssistant(content, toolCalls ?? undefined);
+    return toolCalls;
+  }
+
+  async *runStream(
+    message?: string,
+    maxTurns: number = DEFAULT_MAX_TURNS,
+    extra?: Record<string, unknown>,
+  ): AsyncGenerator<StreamEvent> {
+    if (message) {
+      this.context.addUser(message);
+    }
+
+    try {
+      for (let turn = 0; turn < maxTurns; turn++) {
+        const stepGen = this._stepStream(extra);
+        let next = await stepGen.next();
+        while (!next.done) {
+          yield next.value;
+          next = await stepGen.next();
+        }
+
+        const toolCalls = next.value;
+        if (!toolCalls) {
+          yield { type: "turn_done", content: this.context.last()?.content ?? "" };
+          return;
+        }
+
+        for (const tc of toolCalls) {
+          yield {
+            type: "tool_call_start",
+            id: tc.id,
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          };
+          const result = await this._executeOneToolCall(tc);
+          yield {
+            type: "tool_result",
+            id: tc.id,
+            name: tc.function.name,
+            result,
+          };
+        }
+      }
+
+      yield { type: "turn_done", content: "[Max turns reached]" };
+    } catch (e) {
+      yield {
+        type: "error",
+        message: e instanceof Error ? e.message : String(e),
+      };
+    }
   }
 
   // ── persistence ──────────────────────────────────────────

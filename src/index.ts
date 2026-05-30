@@ -16,6 +16,7 @@ export type {
   ForgeLoadConfig,
   ForgeDebugConfig,
   OpenAICompatibleToolSpec,
+  StreamEvent,
 } from "./types.js";
 
 // MCP

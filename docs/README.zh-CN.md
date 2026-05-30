@@ -71,6 +71,7 @@ const forge = new Forge({
 |---|---|
 | `chat(message, extra?)` | 单轮对话。返回文本；若有 tool call 则返回 JSON。 |
 | `run(message?, maxTurns?, extra?)` | Agent 循环。自动执行工具并将结果回传，直到模型结束或达到 `maxTurns`（默认 10）。 |
+| `runStream(message?, maxTurns?, extra?)` | 同 `run`，但以 `StreamEvent` 流式 yield（文本增量、工具调用、结果）。 |
 | `resume(message?, maxTurns?, extra?)` | `run` 的别名——加载会话后继续对话时语义更清晰。 |
 | `save(path)` | 将对话持久化到 JSON 文件。 |
 | `Forge.load(path, config?)` | 从已保存会话恢复。工具需重新提供（可执行函数无法序列化）。 |
@@ -218,6 +219,7 @@ await forge.resume("Now check Tokyo too.");
 npm run demo        # 需在 .env 中配置 DEEPSEEK_API_KEY
 npm run demo:mcp    # MCP playground
 npm run test:mcp    # 无需 API Key
+npm run tui         # Agent TUI（终端多轮对话）
 ```
 
 ## License
