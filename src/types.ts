@@ -24,6 +24,8 @@ export interface ToolCall {
 export interface MessageDict {
   role: "system" | "user" | "assistant" | "tool";
   content?: string | null;
+  /** DeepSeek V4 thinking mode — must round-trip when tool_calls present. */
+  reasoning_content?: string | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
@@ -48,6 +50,8 @@ export interface OpenAICompatibleToolSpec {
   };
 }
 
+export type ReasoningEffort = "high" | "max" | "off";
+
 export interface ForgeConfig {
   apiKey?: string;
   model?: string;
@@ -55,13 +59,16 @@ export interface ForgeConfig {
   tools?: Tool[];
   maxTokens?: number;
   baseURL?: string;
+  /** V4 thinking effort. Default: "high" with tools, "off" without. */
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface ForgeLoadConfig {
   tools?: Tool[];
   apiKey?: string;
-  /** Additional config passed to Forge constructor. */
   baseURL?: string;
+  /** Override V4 thinking effort on resume (not persisted in session JSON). */
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface ForgeDebugConfig {

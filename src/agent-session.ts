@@ -4,7 +4,7 @@ import { bashTool } from "./bash.js";
 import { Forge } from "./forge.js";
 import { codingAgentSystem } from "./system.js";
 import type { BashOptions } from "./bash.js";
-import type { Tool } from "./types.js";
+import type { ReasoningEffort, Tool } from "./types.js";
 
 export const TRAJECTORY_DIR = resolve(process.env.DS_FORGE_DIR ?? "./trajectories");
 
@@ -24,6 +24,7 @@ export interface OpenAgentSessionOptions {
   cwd?: string;
   resume?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   system?: string;
   tools?: Tool[];
   bash?: BashOptions;
@@ -78,7 +79,11 @@ export class AgentSession {
 
     if (opts.resume) {
       const trajPath = resolve(opts.resume);
-      const forge = Forge.load(trajPath, { tools, apiKey: opts.apiKey });
+      const forge = Forge.load(trajPath, {
+        tools,
+        apiKey: opts.apiKey,
+        reasoningEffort: opts.reasoningEffort,
+      });
       if (opts.system) {
         forge.context.addSystem(opts.system);
       }
@@ -91,6 +96,7 @@ export class AgentSession {
     const forge = new Forge({
       apiKey: opts.apiKey,
       model: opts.model,
+      reasoningEffort: opts.reasoningEffort,
       system,
       tools,
     });

@@ -11,7 +11,7 @@
 import React from "react";
 import { render } from "ink";
 import { resolve } from "node:path";
-import { AgentSession } from "../src/index.js";
+import { AgentSession, DEFAULT_MODEL, type ReasoningEffort } from "../src/index.js";
 import App from "./app.js";
 
 function parseArgs(argv: string[]) {
@@ -19,10 +19,12 @@ function parseArgs(argv: string[]) {
     cwd: string;
     resume?: string;
     model: string;
+    reasoningEffort: ReasoningEffort;
     maxTurns: number;
   } = {
     cwd: process.cwd(),
-    model: "deepseek-chat",
+    model: DEFAULT_MODEL,
+    reasoningEffort: "high",
     maxTurns: 20,
   };
 
@@ -38,6 +40,15 @@ function parseArgs(argv: string[]) {
       case "--model":
         opts.model = argv[++i]!;
         break;
+      case "--effort": {
+        const v = argv[++i]! as ReasoningEffort;
+        if (v !== "high" && v !== "max" && v !== "off") {
+          console.error("--effort must be high, max, or off");
+          process.exit(1);
+        }
+        opts.reasoningEffort = v;
+        break;
+      }
       case "--max-turns":
         opts.maxTurns = parseInt(argv[++i]!, 10);
         break;
@@ -60,6 +71,7 @@ const session = AgentSession.open({
   cwd: opts.cwd,
   resume: opts.resume,
   model: opts.model,
+  reasoningEffort: opts.reasoningEffort,
 });
 
 render(<App session={session} maxTurns={opts.maxTurns} />);

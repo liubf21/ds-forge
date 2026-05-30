@@ -11,6 +11,7 @@ export function defaultTokenCounter(messages: MessageDict[]): number {
 export function messageToDict(m: MessageObj): MessageDict {
   const d: MessageDict = { role: m.role };
   if (m.content != null) d.content = m.content;
+  if (m.reasoning_content != null) d.reasoning_content = m.reasoning_content;
   if (m.tool_calls != null) d.tool_calls = m.tool_calls;
   if (m.tool_call_id != null) d.tool_call_id = m.tool_call_id;
   if (m.name != null) d.name = m.name;
@@ -21,6 +22,7 @@ export function messageFromDict(d: MessageDict): MessageObj {
   return {
     role: d.role,
     content: d.content,
+    reasoning_content: d.reasoning_content,
     tool_calls: d.tool_calls,
     tool_call_id: d.tool_call_id,
     name: d.name,
@@ -30,6 +32,7 @@ export function messageFromDict(d: MessageDict): MessageObj {
 export interface MessageObj {
   role: "system" | "user" | "assistant" | "tool";
   content?: string | null;
+  reasoning_content?: string | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;
@@ -53,8 +56,12 @@ export class Context {
     this.messages.push({ role: "user", content });
   }
 
-  addAssistant(content?: string | null, tool_calls?: ToolCall[]): void {
-    this.messages.push({ role: "assistant", content, tool_calls });
+  addAssistant(
+    content?: string | null,
+    tool_calls?: ToolCall[],
+    reasoning_content?: string | null,
+  ): void {
+    this.messages.push({ role: "assistant", content, tool_calls, reasoning_content });
   }
 
   addToolResult(

@@ -19,7 +19,7 @@
  */
 
 import { resolve } from "node:path";
-import { AgentSession, Forge } from "../src/index.js";
+import { AgentSession, DEFAULT_MODEL, Forge, type ReasoningEffort } from "../src/index.js";
 
 function usage(): never {
   console.log(`
@@ -29,7 +29,8 @@ Options:
   --resume <path>     Load and continue from a saved trajectory
   --replay <path>     Stateless replay of a saved trajectory (no agent loop)
   --cwd <dir>         Working directory for bash commands
-  --model <name>      Model to use (default: deepseek-chat)
+  --model <name>      Model to use (default: deepseek-v4-flash)
+  --effort <level>    Reasoning effort: high | max | off (default: high)
   --max-turns <n>     Max agent turns (default: 20)
   --timeout <ms>      Bash command timeout in ms (default: 30000)
 
@@ -48,11 +49,13 @@ function parseArgs(args: string[]) {
     replay?: string;
     cwd?: string;
     model: string;
+    reasoningEffort: ReasoningEffort;
     maxTurns: number;
     timeout: number;
     task: string;
   } = {
-    model: "deepseek-chat",
+    model: DEFAULT_MODEL,
+    reasoningEffort: "high",
     maxTurns: 20,
     timeout: 30_000,
     task: "",
@@ -73,6 +76,12 @@ function parseArgs(args: string[]) {
       case "--model":
         opts.model = args[++i];
         break;
+      case "--effort": {
+        const v = args[++i] as ReasoningEffort;
+        if (v !== "high" && v !== "max" && v !== "off") usage();
+        opts.reasoningEffort = v;
+        break;
+      }
       case "--max-turns":
         opts.maxTurns = parseInt(args[++i], 10);
         break;
@@ -115,6 +124,7 @@ async function main() {
     cwd,
     resume: opts.resume,
     model: opts.model,
+    reasoningEffort: opts.reasoningEffort,
     bash: { timeout: opts.timeout },
   });
 

@@ -1,6 +1,12 @@
 import OpenAI from "openai";
 import { readFileSync } from "node:fs";
 import { Context, messageFromDict } from "./context.js";
+import {
+  DEFAULT_BASE_URL,
+  DEFAULT_MODEL,
+  buildModelExtra,
+  resolveReasoningEffort,
+} from "./defaults.js";
 import { Session } from "./session.js";
 import { ToolRegistry } from "./tools.js";
 import type {
@@ -8,14 +14,17 @@ import type {
   ForgeLoadConfig,
   ForgeDebugConfig,
   MessageDict,
+  ReasoningEffort,
   StreamEvent,
   Tool,
   ToolCall,
 } from "./types.js";
 
-const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
-const DEFAULT_MODEL = "deepseek-chat";
 const DEFAULT_MAX_TURNS = 10;
+
+type AssistantMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
+  reasoning_content?: string | null;
+};
 
 function mapToolCalls(
   raw: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
@@ -34,6 +43,7 @@ export class Forge {
   readonly model: string;
   readonly client: OpenAI;
   readonly tools: ToolRegistry;
+  readonly reasoningEffort: ReasoningEffort;
   context: Context;
   private _maxTokens: number;
 
@@ -59,6 +69,11 @@ export class Forge {
       this.tools.register(t);
     }
 
+    this.reasoningEffort = resolveReasoningEffort(
+      config.reasoningEffort,
+      this.tools.size > 0,
+    );
+
     this.context = new Context();
     this.context.maxTokens = this._maxTokens;
     if (config.system) {
@@ -66,10 +81,15 @@ export class Forge {
     }
   }
 
+  private _modelExtra(userExtra?: Record<string, unknown>): Record<string, unknown> {
+    return buildModelExtra(this.reasoningEffort, userExtra);
+  }
+
   // ── model step (shared by chat / run) ────────────────────
 
   private async _callModel(extra?: Record<string, unknown>): Promise<{
     content: string | null;
+    reasoningContent: string | null;
     toolCalls: ToolCall[] | null;
   }> {
     this.context.truncate();
@@ -81,21 +101,25 @@ export class Forge {
       model: this.model,
       messages: this.context.toList() as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools,
-      ...extra,
+      ...this._modelExtra(extra),
     });
 
-    const msg = response.choices[0]!.message;
+    const msg = response.choices[0]!.message as AssistantMessage;
     const toolCalls = msg.tool_calls?.length
       ? mapToolCalls(msg.tool_calls)
       : null;
 
-    return { content: msg.content, toolCalls };
+    return {
+      content: msg.content,
+      reasoningContent: msg.reasoning_content ?? null,
+      toolCalls,
+    };
   }
 
   /** One model turn: call API, record assistant message. */
   private async _step(extra?: Record<string, unknown>): Promise<ToolCall[] | null> {
-    const { content, toolCalls } = await this._callModel(extra);
-    this.context.addAssistant(content, toolCalls ?? undefined);
+    const { content, reasoningContent, toolCalls } = await this._callModel(extra);
+    this.context.addAssistant(content, toolCalls ?? undefined, reasoningContent);
     return toolCalls;
   }
 
@@ -164,7 +188,10 @@ export class Forge {
 
   private async *_callModelStream(
     extra?: Record<string, unknown>,
-  ): AsyncGenerator<StreamEvent, { content: string | null; toolCalls: ToolCall[] | null }> {
+  ): AsyncGenerator<
+    StreamEvent,
+    { content: string | null; reasoningContent: string | null; toolCalls: ToolCall[] | null }
+  > {
     this.context.truncate();
 
     const toolSpecs = this.tools.toOpenAISpecs();
@@ -174,16 +201,24 @@ export class Forge {
       model: this.model,
       messages: this.context.toList() as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools,
-      ...extra,
+      ...this._modelExtra(extra),
       stream: true,
     });
 
     let content = "";
+    let reasoningContent = "";
     const acc = new Map<number, { id: string; name: string; arguments: string }>();
 
     for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta;
+      const delta = chunk.choices[0]?.delta as
+        | (OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta & {
+            reasoning_content?: string | null;
+          })
+        | undefined;
       if (!delta) continue;
+
+      const rc = delta.reasoning_content;
+      if (rc) reasoningContent += rc;
 
       if (delta.content) {
         content += delta.content;
@@ -216,7 +251,11 @@ export class Forge {
             }))
         : null;
 
-    return { content: content || null, toolCalls };
+    return {
+      content: content || null,
+      reasoningContent: reasoningContent || null,
+      toolCalls,
+    };
   }
 
   private async *_stepStream(
@@ -229,8 +268,8 @@ export class Forge {
       next = await gen.next();
     }
 
-    const { content, toolCalls } = next.value;
-    this.context.addAssistant(content, toolCalls ?? undefined);
+    const { content, reasoningContent, toolCalls } = next.value;
+    this.context.addAssistant(content, toolCalls ?? undefined, reasoningContent);
     return toolCalls;
   }
 
@@ -299,6 +338,7 @@ export class Forge {
       system: session.system ?? undefined,
       tools: config.tools ?? [],
       baseURL: config.baseURL,
+      reasoningEffort: config.reasoningEffort,
     });
     forge.context = Context.fromDicts(session.messages);
 
@@ -344,17 +384,20 @@ export class Forge {
       baseURL: config.baseURL ?? DEFAULT_BASE_URL,
     });
 
-    let toolSpecs = undefined;
-    if (config.tools && config.tools.length > 0) {
-      const reg = new ToolRegistry();
-      for (const t of config.tools) reg.register(t);
-      toolSpecs = reg.toOpenAISpecs();
+    const registry =
+      config.tools && config.tools.length > 0 ? new ToolRegistry() : null;
+    if (registry) {
+      for (const t of config.tools!) registry.register(t);
     }
+    const toolSpecs = registry?.toOpenAISpecs();
 
     const response = await client.chat.completions.create({
       model: config.model ?? DEFAULT_MODEL,
       messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools: toolSpecs,
+      ...buildModelExtra(
+        resolveReasoningEffort(undefined, (toolSpecs?.length ?? 0) > 0),
+      ),
     });
 
     const rawMsg = response.choices[0]!.message;

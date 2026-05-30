@@ -165,6 +165,48 @@ function test_agentSession_clear_keeps_custom_system() {
   assert.equal(session.forge.context.messages.length, 1);
 }
 
+function test_agentSession_resume_reasoning_effort() {
+  const trajDir = mkdtempSync(join(tmpdir(), "ds-forge-traj-"));
+  const prev = process.env.DS_FORGE_DIR;
+  process.env.DS_FORGE_DIR = trajDir;
+
+  try {
+    const trajPath = join(trajDir, "resume-effort.json");
+    writeFileSync(
+      trajPath,
+      JSON.stringify({
+        version: "0.1.0",
+        model: "deepseek-v4-flash",
+        system: "test",
+        tools: [],
+        messages: [{ role: "user", content: "hi" }],
+        metadata: {},
+      }),
+    );
+
+    const off = AgentSession.open({
+      apiKey: TEST_KEY,
+      cwd: TEST_CWD,
+      resume: trajPath,
+      reasoningEffort: "off",
+      tools: [],
+    });
+    assert.equal(off.forge.reasoningEffort, "off");
+
+    const max = AgentSession.open({
+      apiKey: TEST_KEY,
+      cwd: TEST_CWD,
+      resume: trajPath,
+      reasoningEffort: "max",
+      tools: [],
+    });
+    assert.equal(max.forge.reasoningEffort, "max");
+  } finally {
+    if (prev === undefined) delete process.env.DS_FORGE_DIR;
+    else process.env.DS_FORGE_DIR = prev;
+  }
+}
+
 function test_agentSession_resume_system_override() {
   const trajDir = mkdtempSync(join(tmpdir(), "ds-forge-traj-"));
   const prev = process.env.DS_FORGE_DIR;
@@ -216,6 +258,7 @@ async function main() {
   await check("visibleHistory caps", test_visibleHistory_caps)();
   await check("terminal OSC 8 links", test_terminal_links)();
   await check("AgentSession.clear keeps custom system", test_agentSession_clear_keeps_custom_system)();
+  await check("AgentSession resume reasoningEffort", test_agentSession_resume_reasoning_effort)();
   await check("AgentSession resume+system override", test_agentSession_resume_system_override)();
 
   console.log(`\n${passed} passed, ${failed} failed`);

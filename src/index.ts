@@ -15,6 +15,8 @@ export {
 export type { OpenAgentSessionOptions } from "./agent-session.js";
 export { codingAgentSystem } from "./system.js";
 export { ForgeError } from "./types.js";
+export { DEFAULT_MODEL, DEFAULT_BASE_URL } from "./defaults.js";
+export type { ReasoningEffort } from "./types.js";
 export type {
   Tool,
   ToolDef,

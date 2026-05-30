@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { messageToDict } from "./context.js";
+import { DEFAULT_MODEL } from "./defaults.js";
 import type { MessageDict, OpenAICompatibleToolSpec } from "./types.js";
 import type { Forge } from "./forge.js";
 import type { ToolRegistry } from "./tools.js";
@@ -65,7 +65,7 @@ export class Session {
     }
 
     return new Session(
-      data.model ?? "deepseek-chat",
+      data.model ?? DEFAULT_MODEL,
       data.system ?? null,
       data.messages,
       data.tools ?? [],
