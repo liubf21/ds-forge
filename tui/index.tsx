@@ -11,13 +11,8 @@
 import React from "react";
 import { render } from "ink";
 import { resolve } from "node:path";
-import { Forge, bashTool } from "../src/index.js";
+import { AgentSession } from "../src/index.js";
 import App from "./app.js";
-import { agentSystem } from "./system.js";
-import {
-  createTrajectoryPath,
-  resolveTrajectoryPath,
-} from "./trajectory.js";
 
 function parseArgs(argv: string[]) {
   const opts: {
@@ -61,24 +56,10 @@ if (!process.env.DEEPSEEK_API_KEY) {
 }
 
 const opts = parseArgs(process.argv.slice(2));
-const bash = bashTool({ cwd: opts.cwd });
-const system = agentSystem(opts.cwd);
+const session = AgentSession.open({
+  cwd: opts.cwd,
+  resume: opts.resume,
+  model: opts.model,
+});
 
-let forge: Forge;
-let trajPath: string;
-
-if (opts.resume) {
-  trajPath = resolveTrajectoryPath(opts.resume);
-  forge = Forge.load(trajPath, { tools: [bash] });
-} else {
-  trajPath = createTrajectoryPath();
-  forge = new Forge({
-    model: opts.model,
-    system,
-    tools: [bash],
-  });
-}
-
-render(
-  <App forge={forge} cwd={opts.cwd} maxTurns={opts.maxTurns} trajPath={trajPath} />,
-);
+render(<App session={session} maxTurns={opts.maxTurns} />);

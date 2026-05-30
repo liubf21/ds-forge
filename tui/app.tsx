@@ -1,45 +1,41 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
-import type { Forge } from "../src/forge.js";
-import { agentSystem } from "./system.js";
+import type { AgentSession } from "../src/agent-session.js";
+import { trajectoryLabel } from "../src/agent-session.js";
 import { AssistantBubble, UserBubble } from "./components.js";
 import { chatReducer, visibleHistory } from "./chat-state.js";
 import { applyEvent, truncateLine } from "./display.js";
-import {
-  createTrajectoryPath,
-  historyFromContext,
-  saveTrajectory,
-  trajectoryLabel,
-} from "./trajectory.js";
+import { historyFromContext } from "./history.js";
 import type { LiveTurn } from "./types.js";
 
 interface Props {
-  forge: Forge;
-  cwd: string;
+  session: AgentSession;
   maxTurns: number;
-  trajPath: string;
 }
 
-export default function App({ forge, cwd, maxTurns, trajPath: initialTrajPath }: Props) {
+export default function App({ session, maxTurns }: Props) {
   const { exit } = useApp();
-  const trajPathRef = useRef(initialTrajPath);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
   const [{ history, live }, dispatch] = useReducer(chatReducer, undefined, () => ({
-    history: historyFromContext(forge.context.messages),
+    history: historyFromContext(session.forge.context.messages),
     live: null as LiveTurn | null,
   }));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [trajLabel, setTrajLabel] = useState(() => trajectoryLabel(session.trajPath));
   const busyRef = useRef(false);
 
   const persist = useCallback(() => {
     try {
-      saveTrajectory(forge, trajPathRef.current);
+      sessionRef.current.save();
     } catch (e) {
       setStatus(`save failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }, [forge]);
+  }, []);
 
   const quit = useCallback(() => {
     persist();
@@ -59,14 +55,14 @@ export default function App({ forge, cwd, maxTurns, trajPath: initialTrajPath }:
       }
 
       if (text === "/clear") {
-        forge.context.clear();
-        forge.context.addSystem(agentSystem(cwd));
-        trajPathRef.current = createTrajectoryPath();
+        const newPath = sessionRef.current.clear();
+        setTrajLabel(trajectoryLabel(newPath));
         dispatch({ type: "reset" });
-        setStatus(`cleared · ${trajectoryLabel(trajPathRef.current)}`);
+        setStatus(`cleared · ${trajectoryLabel(newPath)}`);
         return;
       }
 
+      const { forge } = sessionRef.current;
       busyRef.current = true;
       setBusy(true);
       setStatus("");
@@ -109,7 +105,7 @@ export default function App({ forge, cwd, maxTurns, trajPath: initialTrajPath }:
         persist();
       }
     },
-    [forge, quit, maxTurns, cwd, persist],
+    [quit, maxTurns, persist],
   );
 
   useInput((input, key) => {
@@ -117,6 +113,7 @@ export default function App({ forge, cwd, maxTurns, trajPath: initialTrajPath }:
   });
 
   const { hidden, items: messages } = visibleHistory(history);
+  const cwd = session.cwd;
 
   return (
     <Box flexDirection="column" height="100%">
@@ -129,7 +126,7 @@ export default function App({ forge, cwd, maxTurns, trajPath: initialTrajPath }:
       >
         <Text bold>ds-forge</Text>
         <Text dimColor>
-          {trajectoryLabel(trajPathRef.current)} · {truncateLine(cwd, 32)}
+          {trajLabel} · {truncateLine(cwd, 32)}
         </Text>
       </Box>
 

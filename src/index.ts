@@ -6,6 +6,14 @@ export { Session } from "./session.js";
 export type { SessionData } from "./session.js";
 export { bashTool } from "./bash.js";
 export type { BashOptions } from "./bash.js";
+export {
+  AgentSession,
+  TRAJECTORY_DIR,
+  createTrajectoryPath,
+  trajectoryLabel,
+} from "./agent-session.js";
+export type { OpenAgentSessionOptions } from "./agent-session.js";
+export { codingAgentSystem } from "./system.js";
 export { ForgeError } from "./types.js";
 export type {
   Tool,

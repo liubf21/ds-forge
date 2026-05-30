@@ -18,12 +18,8 @@
  * Trajectory files are saved to ./trajectories/ by default.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { Forge } from "../src/forge.js";
-import { bashTool } from "../src/bash.js";
-
-const TRAJECTORY_DIR = resolve(process.env.DS_FORGE_DIR ?? "./trajectories");
+import { resolve } from "node:path";
+import { AgentSession, Forge } from "../src/index.js";
 
 function usage(): never {
   console.log(`
@@ -101,7 +97,6 @@ function parseArgs(args: string[]) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
 
-  // ── Replay mode (stateless) ─────────────────────────────
   if (opts.replay) {
     const msg = await Forge.debug(opts.replay, { model: opts.model });
     console.log("=".repeat(60));
@@ -115,71 +110,49 @@ async function main() {
     return;
   }
 
-  // ── Resume mode ─────────────────────────────────────────
-  const bash = bashTool({ cwd: opts.cwd, timeout: opts.timeout });
-
-  let forge: Forge;
-  let trajPath: string;
+  const cwd = opts.cwd ?? process.cwd();
+  const session = AgentSession.open({
+    cwd,
+    resume: opts.resume,
+    model: opts.model,
+    bash: { timeout: opts.timeout },
+  });
 
   if (opts.resume) {
     console.log(`Loading trajectory: ${opts.resume}`);
-    forge = Forge.load(opts.resume, { tools: [bash] });
-    trajPath = opts.resume;
-  } else {
-    // ── New task ──────────────────────────────────────────
-    forge = new Forge({
-      model: opts.model,
-      system: `You are an AI agent with the ability to execute shell commands.
-
-Your working directory is: ${opts.cwd ?? process.cwd()}
-
-Guidelines:
-- Use the 'bash' tool to run commands. Think before executing.
-- Read files with 'cat', list with 'ls', search with 'grep', etc.
-- Be careful with destructive commands (rm, mv, etc.). Confirm before using them.
-- When you complete the task, summarize what you did.`,
-      tools: [bash],
-    });
-
-    // Save path
-    mkdirSync(TRAJECTORY_DIR, { recursive: true });
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    trajPath = join(TRAJECTORY_DIR, `task-${ts}.json`);
   }
 
-  // ── Run ─────────────────────────────────────────────────
   console.log("=".repeat(60));
   console.log(opts.resume ? "RESUMING" : "RUNNING");
   console.log("=".repeat(60));
   console.log(`Task: ${opts.task}`);
-  console.log(`Trajectory: ${trajPath}`);
+  console.log(`Trajectory: ${session.trajPath}`);
   console.log("=".repeat(60));
   console.log();
 
-  const result = await forge.run(opts.task, opts.maxTurns);
+  const result = await session.forge.run(opts.task, opts.maxTurns);
 
-  // ── Save trajectory ─────────────────────────────────────
-  forge.save(trajPath);
+  session.save();
   console.log();
   console.log("=".repeat(60));
   console.log("RESULT");
   console.log("=".repeat(60));
   console.log(result);
   console.log();
-  console.log(`Trajectory saved: ${trajPath}`);
+  console.log(`Trajectory saved: ${session.trajPath}`);
   console.log(
-    `  ${forge.context.messages.length} messages, model: ${forge.model}`,
+    `  ${session.forge.context.messages.length} messages, model: ${session.forge.model}`,
   );
   console.log();
   console.log("Next steps:");
   console.log(
-    `  Resume:  npx tsx examples/agent.ts --resume ${trajPath} "<next task>"`,
+    `  Resume:  npx tsx examples/agent.ts --resume ${session.trajPath} "<next task>"`,
   );
   console.log(
-    `  Replay:  npx tsx examples/agent.ts --replay ${trajPath}`,
+    `  Replay:  npx tsx examples/agent.ts --replay ${session.trajPath}`,
   );
   console.log(
-    `  Inspect: cat ${trajPath} | jq '.messages'`,
+    `  Inspect: cat ${session.trajPath} | jq '.messages'`,
   );
 }
 
