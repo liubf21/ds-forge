@@ -97,7 +97,7 @@ When a tool call fails (JSON parse error, execution exception, unknown tool name
 
 ### 6. Truncation is FIFO, system-preserving
 
-Before every API call, `truncate()` removes the oldest non-system message until the estimated token count fits `maxTokens`. If even the system message alone exceeds the limit, its content is truncated. This is crude but sufficient — the 128K context window of deepseek-chat means truncation rarely triggers in practice.
+Before every API call, `truncate()` removes the oldest non-system message until the estimated token count fits `maxTokens`. If even the system message alone exceeds the limit, its content is truncated. This is intentionally crude: ds-forge defaults to a conservative 128K budget even though DeepSeek V4 can serve 1M context, and callers can raise `maxTokens` for long-horizon runs.
 
 ## Data Flow
 
@@ -108,7 +108,7 @@ User → forge.chat("Hi")
   → _send()
     → context.truncate()
     → client.chat.completions.create(messages, tools?)
-    → if tool_calls: context.addAssistant(tool_calls), return JSON
+    → if tool_calls: context.addAssistant(content, tool_calls, reasoning_content), return JSON
     → else: context.addAssistant(content), return text
 ```
 
@@ -120,7 +120,7 @@ User → forge.run("Task", maxTurns=10)
     → context.truncate()
     → client.chat.completions.create(messages, tools)
     → if no tool_calls: break, return content
-    → context.addAssistant(tool_calls)
+    → context.addAssistant(content, tool_calls, reasoning_content)
     → for each tool_call:
       → json.parse(arguments)
       → registry.execute(name, args)

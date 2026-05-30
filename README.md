@@ -48,13 +48,16 @@ Main harness — wires together the API client, context, and tools.
 ```typescript
 const forge = new Forge({
   apiKey?: string;       // default: process.env.DEEPSEEK_API_KEY
-  model?: string;        // default: "deepseek-chat"
+  model?: string;        // default: "deepseek-v4-flash"
+  reasoningEffort?: "high" | "max" | "off";  // default: "high" with tools, "off" without
   system?: string;       // system prompt
   tools?: Tool[];        // registered tools
   maxTokens?: number;    // default: 128_000
   baseURL?: string;      // default: "https://api.deepseek.com/v1"
 });
 ```
+
+DeepSeek's official examples use `https://api.deepseek.com` as `base_url`. The current default keeps the OpenAI-style `/v1` path for SDK compatibility; override `baseURL` if your gateway expects the official root URL.
 
 **Methods:**
 
@@ -131,7 +134,7 @@ s.validateTools(registry);    // check tool names match registered callables
 ```json
 {
   "version": "0.1.0",
-  "model": "deepseek-chat",
+  "model": "deepseek-v4-flash",
   "system": "You are helpful.",
   "tools": [
     { "type": "function", "function": { "name": "...", "description": "...", "parameters": {} } }
@@ -142,6 +145,23 @@ s.validateTools(registry);    // check tool names match registered callables
   ],
   "metadata": { "created_at": "...", "message_count": 4 }
 }
+```
+
+### `AgentSession`
+
+Optional preset for coding agents — wraps `Forge` with default system prompt, bash tool, and trajectory persistence. Used by `npm run tui` and `examples/agent.ts`.
+
+```typescript
+const session = AgentSession.open({ cwd: "/my/project", resume: "trajectories/task.json" });
+await session.forge.run("list files in src/");
+session.save();                          // writes to session.trajPath
+session.clear();                         // new trajectory + reset context
+```
+
+**System prompt:** default lives in `src/system.ts` (`codingAgentSystem`). Override at open time with `system: "..."`. `--resume` uses the prompt stored in the trajectory; pass `system:` with `--resume` to replace it immediately via `context.addSystem()`.
+
+```typescript
+AgentSession.open({ cwd, system: "You are a security reviewer." });
 ```
 
 ## Patterns
@@ -204,12 +224,36 @@ const forge = Forge.load("session.json", { tools: [getWeather, calculate] });
 await forge.resume("Now check Tokyo too.");
 ```
 
+## Agent TUI
+
+Interactive terminal chat (Claude Code style) with streaming, bash tool, and automatic trajectory persistence.
+
+```bash
+npm run tui                                          # new session
+npm run tui -- --cwd /path/to/project                # set working directory
+npm run tui -- --resume trajectories/task-xxx.json   # continue a saved session
+```
+
+The extra `--` is required by npm: everything after it is passed to the script, not interpreted by npm itself. To skip it, run directly:
+
+```bash
+npx tsx --env-file-if-exists=.env tui/index.tsx --resume trajectories/task-xxx.json
+```
+
+**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`
+
+**In-session commands:** `/clear` (new trajectory), `/quit`, Ctrl+C
+
+**Trajectories:** saved to `./trajectories/` by default (override with `DS_FORGE_DIR`). A new `task-<timestamp>.json` is created on start; the file is updated after each turn and on exit. The header shows the current filename.
+
+See also `examples/agent.ts` for a non-interactive CLI with the same persistence model.
+
 ## Running the demo
 
 ```bash
 npm run demo        # needs DEEPSEEK_API_KEY in .env
 npm run demo:mcp    # MCP playground
-npm run test:mcp    # no API key
+npm run test        # no API key (MCP + TUI)
 npm run tui         # Agent TUI (terminal chat)
 ```
 
@@ -219,6 +263,7 @@ npm run tui         # Agent TUI (terminal chat)
 |---|---|
 | [DESIGN.md](DESIGN.md) | Architecture and design trade-offs |
 | [docs/README.zh-CN.md](docs/README.zh-CN.md) | Getting started (Chinese) |
+| [docs/deepseek-v4.md](docs/deepseek-v4.md) | DeepSeek V4 architecture, API, agent semantics (Chinese) |
 | [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md) | Architecture (Chinese) |
 | [docs/mcp.md](docs/mcp.md) | MCP protocol (Chinese) |
 | [docs/llm-protocols.md](docs/llm-protocols.md) | LLM API protocol comparison (Chinese) |

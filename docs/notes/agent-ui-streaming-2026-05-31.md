@@ -32,7 +32,7 @@ npm run tui
 ## 界面结构（Claude Code 风格）
 
 ```
-┌ ds-forge ─────────────── deepseek-chat ┐
+┌ ds-forge ───────── deepseek-v4-flash ┐
 │ ❯ You                                   │
 │ What's the weather in Paris?            │
 │ ◆ Agent                                 │

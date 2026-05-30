@@ -103,7 +103,7 @@ ctx.tokenCounter = (msgs) => myAccurateCounter(msgs);
 
 ### 6. 截断是 FIFO，保留 system
 
-每次 API 调用前，`truncate()` 删除最旧非 system 消息，直到估算 token 数 fit `maxTokens`。若仅 system 消息就超限，则截断其 content。这很粗糙但够用——deepseek-chat 的 128K 上下文窗口意味着实践中很少触发截断。
+每次 API 调用前，`truncate()` 删除最旧非 system 消息，直到估算 token 数 fit `maxTokens`。若仅 system 消息就超限，则截断其 content。这是刻意保持简单：ds-forge 默认使用保守的 128K 预算，即使 DeepSeek V4 官方服务支持 1M context；长轨迹任务可显式调高 `maxTokens`。
 
 ## 数据流
 
@@ -115,7 +115,7 @@ User → forge.chat("Hi")
   → _send()
     → context.truncate()
     → client.chat.completions.create(messages, tools?)
-    → if tool_calls: context.addAssistant(tool_calls), return JSON
+    → if tool_calls: context.addAssistant(content, tool_calls, reasoning_content), return JSON
     → else: context.addAssistant(content), return text
 ```
 
@@ -128,7 +128,7 @@ User → forge.run("Task", maxTurns=10)
     → context.truncate()
     → client.chat.completions.create(messages, tools)
     → if no tool_calls: break, return content
-    → context.addAssistant(tool_calls)
+    → context.addAssistant(content, tool_calls, reasoning_content)
     → for each tool_call:
       → json.parse(arguments)
       → registry.execute(name, args)
@@ -166,3 +166,23 @@ Forge.load("s.json", { tools })
 | char/4 token 计数 | 零依赖、快 | 非英文文本约 85% 准确 |
 | 显式 JSON Schema | 可移植、可调试 | schema 与 execute 之间无类型安全 |
 | 工具可执行函数不序列化 | 代码与数据分离清晰 | load 时必须重新提供 tools |
+
+## DeepSeek V4 集成
+
+V4 原理与 API 语义见 [deepseek-v4.md](deepseek-v4.md)。本节只记录 ds-forge 的默认选择与实现状态。
+
+### 默认配置
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| model | `deepseek-v4-flash` | 对齐官方 legacy `deepseek-chat` 当前路由的低成本定位 |
+| `reasoningEffort` | 有 tools 时 `high`，无 tools 时 `off` | 显式注入 API；与 DeepSeek 默认（thinking on + high）一致，但无 tools 时主动关 thinking 以省钱 |
+| `reasoning_content` | 存于 `Context`，原样回传 | 含 tool call 时 API 要求，否则 400 |
+
+CLI：`--effort high|max|off`（`agent.ts`、`tui`）。
+
+### 待改进
+
+1. `runStream` 增加 `reasoning_delta` 事件——UI 可展示 thinking
+2. 截断策略分层：含 `tool_calls` 的 assistant 消息不可 strip `reasoning_content`
+3. Think Max：`reasoningEffort: "max"` + `maxTokens` ≥ 384K
