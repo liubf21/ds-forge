@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { readFileSync } from "node:fs";
-import { Context, messageFromDict } from "./context.js";
+import { Context, messageFromDict, messagesForApi } from "./context.js";
 import {
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
@@ -99,7 +99,7 @@ export class Forge {
 
     const response = await this.client.chat.completions.create({
       model: this.model,
-      messages: this.context.toList() as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+      messages: messagesForApi(this.context.toList()) as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools,
       ...this._modelExtra(extra),
     });
@@ -199,7 +199,7 @@ export class Forge {
 
     const stream = await this.client.chat.completions.create({
       model: this.model,
-      messages: this.context.toList() as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+      messages: messagesForApi(this.context.toList()) as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools,
       ...this._modelExtra(extra),
       stream: true,

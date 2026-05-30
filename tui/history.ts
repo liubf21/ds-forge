@@ -27,8 +27,12 @@ export function historyFromContext(messages: MessageObj[]): HistoryMessage[] {
       });
     }
 
-    if (m.content || tools.length > 0) {
-      history.push({ role: "assistant", content: m.content ?? "", tools });
+    if (m.content || m.reasoning_content || tools.length > 0) {
+      history.push({
+        role: "assistant",
+        content: m.content ?? m.reasoning_content ?? "",
+        tools,
+      });
     }
   }
 

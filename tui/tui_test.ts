@@ -11,6 +11,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { AgentSession } from "../src/agent-session.js";
+import { messagesForApi, messageFromDict } from "../src/context.js";
 import type { StreamEvent } from "../src/types.js";
 import { chatReducer, visibleHistory, MAX_VISIBLE_MESSAGES } from "./chat-state.js";
 import { applyEvent, formatToolCommand, formatToolStatus } from "./display.js";
@@ -165,6 +166,43 @@ function test_agentSession_clear_keeps_custom_system() {
   assert.equal(session.forge.context.messages.length, 1);
 }
 
+function test_messagesForApi_reasoning_only_assistant() {
+  const api = messagesForApi([
+    { role: "user", content: "你好" },
+    {
+      role: "assistant",
+      reasoning_content: "你好！有什么可以帮你的吗？",
+    },
+    { role: "user", content: "看看仓库" },
+  ]);
+  const assistant = api[1]!;
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.content, "你好！有什么可以帮你的吗？");
+  assert.equal(assistant.reasoning_content, undefined);
+}
+
+function test_historyFromContext_reasoning_only_assistant() {
+  const history = historyFromContext([
+    { role: "user", content: "你好" },
+    {
+      role: "assistant",
+      reasoning_content: "你好！有什么可以帮你的吗？",
+    },
+  ]);
+  assert.equal(history.length, 2);
+  assert.equal(history[1]?.role, "assistant");
+  assert.match(history[1]?.content ?? "", /你好/);
+}
+
+function test_messageFromDict_promotes_reasoning_only() {
+  const m = messageFromDict({
+    role: "assistant",
+    reasoning_content: "reply text",
+  });
+  assert.equal(m.content, "reply text");
+  assert.equal(m.reasoning_content, undefined);
+}
+
 function test_agentSession_resume_reasoning_effort() {
   const trajDir = mkdtempSync(join(tmpdir(), "ds-forge-traj-"));
   const prev = process.env.DS_FORGE_DIR;
@@ -258,6 +296,9 @@ async function main() {
   await check("visibleHistory caps", test_visibleHistory_caps)();
   await check("terminal OSC 8 links", test_terminal_links)();
   await check("AgentSession.clear keeps custom system", test_agentSession_clear_keeps_custom_system)();
+  await check("messagesForApi reasoning-only assistant", test_messagesForApi_reasoning_only_assistant)();
+  await check("historyFromContext reasoning-only assistant", test_historyFromContext_reasoning_only_assistant)();
+  await check("messageFromDict promotes reasoning-only", test_messageFromDict_promotes_reasoning_only)();
   await check("AgentSession resume reasoningEffort", test_agentSession_resume_reasoning_effort)();
   await check("AgentSession resume+system override", test_agentSession_resume_system_override)();
 

@@ -1,6 +1,6 @@
 export { Forge } from "./forge.js";
 export { tool, ToolRegistry } from "./tools.js";
-export { Context, messageToDict, messageFromDict, defaultTokenCounter } from "./context.js";
+export { Context, messageToDict, messageFromDict, defaultTokenCounter, messagesForApi, normalizeAssistantFields } from "./context.js";
 export type { MessageObj, MessageDict } from "./context.js";
 export { Session } from "./session.js";
 export type { SessionData } from "./session.js";
