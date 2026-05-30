@@ -1,0 +1,46 @@
+{
+  "name": "ds-forge",
+  "version": "0.1.0",
+  "description": "Lightweight agent harness for DeepSeek V4 models",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek",
+    "agent",
+    "tool-calling",
+    "mcp",
+    "llm"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "demo": "tsx --env-file-if-exists=.env examples/demo.ts",
+    "demo:mcp": "tsx --env-file-if-exists=.env examples/mcp_demo.ts",
+    "test:mcp": "tsx examples/mcp_test.ts",
+    "dev": "tsx --env-file-if-exists=.env"
+  },
+  "dependencies": {
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "tsx": "^4.0.0"
+  }
+}

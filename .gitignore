@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.log
+
+# Local agent run artifacts (may contain machine-specific paths)
+trajectories/
