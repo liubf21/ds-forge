@@ -1,5 +1,7 @@
 # LLM API 协议对比
 
+[文档索引](README.zh-CN.md)
+
 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Google Gemini 四种 API 在 tool calling 上的格式差异与设计思路。
 
 ## 目录

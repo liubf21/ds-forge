@@ -1,13 +1,6 @@
----
-name: ds-forge-design
-description: Architecture and design rationale for the ds-forge DeepSeek V4 agent harness
-metadata: 
-  node_type: memory
-  type: project
-  originSessionId: e478a88a-32ac-4f6f-adb1-b51b6ccc482f
----
-
 # ds-forge Design
+
+[中文](docs/DESIGN.zh-CN.md)
 
 ## Philosophy
 

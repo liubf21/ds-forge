@@ -1,5 +1,7 @@
 # MCP 协议原理
 
+[文档索引](README.zh-CN.md)
+
 一份给初学者的说明，从 tool calling 讲起，再引出 MCP。
 
 ## 目录

@@ -1,5 +1,7 @@
 # ds-forge
 
+[中文文档](docs/README.zh-CN.md)
+
 Lightweight agent harness for DeepSeek V4. Thin wrapper around the OpenAI-compatible API with context management, tool calling, and session persistence.
 
 ## Install
@@ -208,6 +210,16 @@ npm run demo        # needs DEEPSEEK_API_KEY in .env
 npm run demo:mcp    # MCP playground
 npm run test:mcp    # no API key
 ```
+
+## Further reading
+
+| Doc | Description |
+|---|---|
+| [DESIGN.md](DESIGN.md) | Architecture and design trade-offs |
+| [docs/README.zh-CN.md](docs/README.zh-CN.md) | Getting started (Chinese) |
+| [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md) | Architecture (Chinese) |
+| [docs/mcp.md](docs/mcp.md) | MCP protocol (Chinese) |
+| [docs/llm-protocols.md](docs/llm-protocols.md) | LLM API protocol comparison (Chinese) |
 
 ## License
 
