@@ -6,13 +6,10 @@ Lightweight agent harness for DeepSeek V4. Thin wrapper around the OpenAI-compat
 
 ```bash
 npm install
+cp .env.example .env   # add your key
 ```
 
-Set your key:
-
-```bash
-export DEEPSEEK_API_KEY=sk-...
-```
+`npm run demo` / `demo:mcp` load `.env` automatically (`tsx --env-file-if-exists`). To run examples directly: `npx tsx --env-file=.env examples/...`
 
 ## Quick start
 
@@ -207,11 +204,9 @@ await forge.resume("Now check Tokyo too.");
 ## Running the demo
 
 ```bash
-# load .env into the shell (or: npm run demo uses --env-file-if-exists)
-set -a; source .env; set +a
-npm run demo
-npm run demo:mcp    # MCP playground (agent loop needs DEEPSEEK_API_KEY)
-npm run test:mcp    # MCP tests, no API key
+npm run demo        # needs DEEPSEEK_API_KEY in .env
+npm run demo:mcp    # MCP playground
+npm run test:mcp    # no API key
 ```
 
 ## License
