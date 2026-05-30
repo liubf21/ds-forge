@@ -17,3 +17,20 @@ export type {
   ForgeDebugConfig,
   OpenAICompatibleToolSpec,
 } from "./types.js";
+
+// MCP
+export { MCPClient, StdioTransport, HTTPTransport } from "./mcp/index.js";
+export type {
+  StdioConfig,
+  HTTPConfig,
+  MCPTransport,
+  TransportCallbacks,
+  MCPToolDef,
+  MCPToolCallResult,
+  MCPContent,
+  JSONRPCMessage,
+  JSONRPCRequest,
+  JSONRPCResponse,
+  JSONRPCNotification,
+  JSONRPCError,
+} from "./mcp/index.js";
