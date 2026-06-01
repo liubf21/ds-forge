@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { Context, messageFromDict, messagesForApi } from "./context.js";
 import {
   DEFAULT_BASE_URL,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_MAX_TURNS,
   DEFAULT_MODEL,
+  MAX_TURNS_REACHED,
   buildModelExtra,
   resolveReasoningEffort,
 } from "./defaults.js";
@@ -19,8 +22,6 @@ import type {
   Tool,
   ToolCall,
 } from "./types.js";
-
-const DEFAULT_MAX_TURNS = 10;
 
 type AssistantMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
   reasoning_content?: string | null;
@@ -57,7 +58,7 @@ export class Forge {
     }
 
     this.model = config.model ?? DEFAULT_MODEL;
-    this._maxTokens = config.maxTokens ?? 128_000;
+    this._maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     this.client = new OpenAI({
       apiKey,
@@ -129,7 +130,7 @@ export class Forge {
     }
   }
 
-  private async _executeOneToolCall(tc: ToolCall): Promise<string> {
+  private async _executeOneToolCall(tc: ToolCall, signal?: AbortSignal): Promise<string> {
     let args: Record<string, unknown>;
     try {
       args = JSON.parse(tc.function.arguments);
@@ -139,7 +140,7 @@ export class Forge {
       return err;
     }
 
-    const result = await this.tools.execute(tc.function.name, args);
+    const result = await this.tools.execute(tc.function.name, args, signal);
     this.context.addToolResult(tc.id, result, tc.function.name);
     return result;
   }
@@ -173,7 +174,7 @@ export class Forge {
       await this._executeToolCalls(toolCalls);
     }
 
-    return "[Max turns reached]";
+    return MAX_TURNS_REACHED;
   }
 
   async resume(
@@ -188,6 +189,7 @@ export class Forge {
 
   private async *_callModelStream(
     extra?: Record<string, unknown>,
+    signal?: AbortSignal,
   ): AsyncGenerator<
     StreamEvent,
     { content: string | null; reasoningContent: string | null; toolCalls: ToolCall[] | null }
@@ -197,13 +199,16 @@ export class Forge {
     const toolSpecs = this.tools.toOpenAISpecs();
     const tools = toolSpecs.length > 0 ? toolSpecs : undefined;
 
-    const stream = await this.client.chat.completions.create({
-      model: this.model,
-      messages: messagesForApi(this.context.toList()) as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-      tools,
-      ...this._modelExtra(extra),
-      stream: true,
-    });
+    const stream = await this.client.chat.completions.create(
+      {
+        model: this.model,
+        messages: messagesForApi(this.context.toList()) as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+        tools,
+        ...this._modelExtra(extra),
+        stream: true,
+      },
+      signal ? { signal } : undefined,
+    );
 
     let content = "";
     let reasoningContent = "";
@@ -260,8 +265,9 @@ export class Forge {
 
   private async *_stepStream(
     extra?: Record<string, unknown>,
+    signal?: AbortSignal,
   ): AsyncGenerator<StreamEvent, ToolCall[] | null> {
-    const gen = this._callModelStream(extra);
+    const gen = this._callModelStream(extra, signal);
     let next = await gen.next();
     while (!next.done) {
       yield next.value;
@@ -277,6 +283,7 @@ export class Forge {
     message?: string,
     maxTurns: number = DEFAULT_MAX_TURNS,
     extra?: Record<string, unknown>,
+    signal?: AbortSignal,
   ): AsyncGenerator<StreamEvent> {
     if (message) {
       this.context.addUser(message);
@@ -284,12 +291,16 @@ export class Forge {
 
     try {
       for (let turn = 0; turn < maxTurns; turn++) {
-        const stepGen = this._stepStream(extra);
+        if (signal?.aborted) break;
+
+        const stepGen = this._stepStream(extra, signal);
         let next = await stepGen.next();
         while (!next.done) {
           yield next.value;
           next = await stepGen.next();
         }
+
+        if (signal?.aborted) break;
 
         const toolCalls = next.value;
         if (!toolCalls) {
@@ -298,13 +309,14 @@ export class Forge {
         }
 
         for (const tc of toolCalls) {
+          if (signal?.aborted) break;
           yield {
             type: "tool_call_start",
             id: tc.id,
             name: tc.function.name,
             arguments: tc.function.arguments,
           };
-          const result = await this._executeOneToolCall(tc);
+          const result = await this._executeOneToolCall(tc, signal);
           yield {
             type: "tool_result",
             id: tc.id,
@@ -314,8 +326,11 @@ export class Forge {
         }
       }
 
-      yield { type: "turn_done", content: "[Max turns reached]" };
+      if (!signal?.aborted) {
+        yield { type: "turn_done", content: MAX_TURNS_REACHED };
+      }
     } catch (e) {
+      if (signal?.aborted) return;
       yield {
         type: "error",
         message: e instanceof Error ? e.message : String(e),

@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type { AgentSession } from "../src/agent-session.js";
 import { trajectoryLabel } from "../src/agent-session.js";
+import { MAX_TURNS_REACHED } from "../src/defaults.js";
 import { AssistantBubble, FileLink, UserBubble } from "./components.js";
 import { chatReducer, visibleHistory } from "./chat-state.js";
 import { applyEvent } from "./display.js";
@@ -27,7 +28,10 @@ export default function App({ session, maxTurns }: Props) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [trajLabel, setTrajLabel] = useState(() => trajectoryLabel(session.trajPath));
+  const [showAll, setShowAll] = useState(false);
   const busyRef = useRef(false);
+  const abortCtrlRef = useRef<AbortController | null>(null);
+  const lastInputRef = useRef("");
 
   const persist = useCallback(() => {
     try {
@@ -58,14 +62,25 @@ export default function App({ session, maxTurns }: Props) {
         const newPath = sessionRef.current.clear();
         setTrajLabel(trajectoryLabel(newPath));
         dispatch({ type: "reset" });
+        setShowAll(false);
         setStatus(`cleared · ${trajectoryLabel(newPath)}`);
         return;
       }
 
+      if (text === "/history") {
+        setShowAll((v) => !v);
+        setStatus("");
+        return;
+      }
+
       const { forge } = sessionRef.current;
+      const snapshot = forge.context.snapshot();
+      const ctrl = new AbortController();
+      abortCtrlRef.current = ctrl;
       busyRef.current = true;
       setBusy(true);
       setStatus("");
+      lastInputRef.current = text;
       dispatch({ type: "add_user", content: text });
       setInput("");
 
@@ -74,7 +89,8 @@ export default function App({ session, maxTurns }: Props) {
 
       try {
         let completed = false;
-        for await (const ev of forge.runStream(text, maxTurns)) {
+        for await (const ev of forge.runStream(text, maxTurns, undefined, ctrl.signal)) {
+          if (ctrl.signal.aborted) break;
           if (ev.type === "error") {
             setStatus(ev.message);
             break;
@@ -88,18 +104,35 @@ export default function App({ session, maxTurns }: Props) {
           dispatch({ type: "live_update", turn: { ...turn } });
         }
 
-        if (completed) {
+        if (ctrl.signal.aborted) {
+          forge.context.restore(snapshot);
+          dispatch({ type: "undo_last" });
+          setInput(lastInputRef.current);
+          setStatus("Aborted — input restored");
+        } else if (completed) {
+          const hitLimit = turn.content === MAX_TURNS_REACHED;
           dispatch({
             type: "complete_turn",
             message: { role: "assistant", content: turn.content, tools: turn.tools },
           });
+          if (hitLimit) {
+            setStatus("Max turns reached — send a message to continue");
+          }
         } else {
           dispatch({ type: "live_clear" });
         }
       } catch (e) {
-        dispatch({ type: "live_clear" });
-        setStatus(e instanceof Error ? e.message : String(e));
+        if (ctrl.signal.aborted) {
+          forge.context.restore(snapshot);
+          dispatch({ type: "undo_last" });
+          setInput(lastInputRef.current);
+          setStatus("Aborted — input restored");
+        } else {
+          dispatch({ type: "live_clear" });
+          setStatus(e instanceof Error ? e.message : String(e));
+        }
       } finally {
+        abortCtrlRef.current = null;
         busyRef.current = false;
         setBusy(false);
         persist();
@@ -108,11 +141,48 @@ export default function App({ session, maxTurns }: Props) {
     [quit, maxTurns, persist],
   );
 
-  useInput((input, key) => {
-    if (key.ctrl && input === "c") quit();
+  const undo = useCallback(() => {
+    const { forge } = sessionRef.current;
+    const msgs = forge.context.messages;
+    let i = msgs.length - 1;
+    while (i >= 0 && msgs[i].role !== "user") i--;
+    if (i < 0) return;
+    const undoneText = msgs[i].content ?? "";
+    forge.context.restore(msgs.slice(0, i));
+    dispatch({ type: "undo_last" });
+    setInput(undoneText);
+    setStatus("Undone — edit and resend");
+    persist();
+  }, [persist]);
+
+  const DOUBLE_ESC_MS = 500;
+  const lastEscRef = useRef(0);
+
+  useInput((_input, key) => {
+    if (key.ctrl && _input === "c") quit();
+    if (!key.escape) return;
+
+    const now = Date.now();
+    const gap = now - lastEscRef.current;
+    lastEscRef.current = now;
+
+    if (busyRef.current) {
+      if (gap < DOUBLE_ESC_MS) {
+        abortCtrlRef.current?.abort();
+        setStatus("");
+      } else {
+        setStatus("Press Esc again to abort");
+      }
+    } else {
+      if (gap < DOUBLE_ESC_MS) {
+        undo();
+      } else {
+        setStatus("Press Esc again to undo");
+      }
+    }
   });
 
-  const { hidden, items: messages } = visibleHistory(history);
+  const { hidden, items: messages } = visibleHistory(history, showAll);
 
   return (
     <Box flexDirection="column" height="100%">
@@ -134,13 +204,13 @@ export default function App({ session, maxTurns }: Props) {
         {history.length === 0 && !live && (
           <Box flexDirection="column" marginBottom={1}>
             <Text dimColor>Agent TUI — type a message to begin</Text>
-            <Text dimColor>/clear · /quit · Ctrl+C · --cwd --resume</Text>
+            <Text dimColor>Esc undo · /clear · /history · /quit</Text>
           </Box>
         )}
 
         {hidden > 0 && (
           <Box marginBottom={1}>
-            <Text dimColor>… {hidden} older messages hidden</Text>
+            <Text dimColor>… {hidden} older messages hidden · /history to expand</Text>
           </Box>
         )}
 
@@ -174,7 +244,7 @@ export default function App({ session, maxTurns }: Props) {
         flexDirection="column"
       >
         {busy ? (
-          <Text dimColor>Agent is thinking…</Text>
+          <Text dimColor>Agent is thinking… <Text color="gray">(Esc to undo)</Text></Text>
         ) : (
           <Box>
             <Text color="cyan" bold>

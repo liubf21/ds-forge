@@ -19,7 +19,7 @@
  */
 
 import { resolve } from "node:path";
-import { AgentSession, DEFAULT_MODEL, Forge, type ReasoningEffort } from "../src/index.js";
+import { AgentSession, DEFAULT_AGENT_REASONING_EFFORT, DEFAULT_MAX_TURNS, DEFAULT_MODEL, DEFAULT_TIMEOUT_MS, Forge, type ReasoningEffort } from "../src/index.js";
 
 function usage(): never {
   console.log(`
@@ -29,10 +29,10 @@ Options:
   --resume <path>     Load and continue from a saved trajectory
   --replay <path>     Stateless replay of a saved trajectory (no agent loop)
   --cwd <dir>         Working directory for bash commands
-  --model <name>      Model to use (default: deepseek-v4-flash)
-  --effort <level>    Reasoning effort: high | max | off (default: high)
-  --max-turns <n>     Max agent turns (default: 20)
-  --timeout <ms>      Bash command timeout in ms (default: 30000)
+  --model <name>      Model to use (default: ${DEFAULT_MODEL})
+  --effort <level>    Reasoning effort: high | max | off (default: ${DEFAULT_AGENT_REASONING_EFFORT})
+  --max-turns <n>     Max agent turns (default: ${DEFAULT_MAX_TURNS})
+  --timeout <ms>      Bash command timeout in ms (default: ${DEFAULT_TIMEOUT_MS})
 
 Examples:
   npx tsx examples/agent.ts "what files are in src/?"
@@ -55,9 +55,9 @@ function parseArgs(args: string[]) {
     task: string;
   } = {
     model: DEFAULT_MODEL,
-    reasoningEffort: "high",
-    maxTurns: 20,
-    timeout: 30_000,
+    reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
+    maxTurns: DEFAULT_MAX_TURNS,
+    timeout: DEFAULT_TIMEOUT_MS,
     task: "",
   };
 

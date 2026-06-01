@@ -10,6 +10,7 @@
  * The client has no opinion about transport — stdio or HTTP, same API.
  */
 
+import { DEFAULT_TIMEOUT_MS } from "../defaults.js";
 import { tool } from "../tools.js";
 import type { Tool, JsonSchema } from "../types.js";
 import { VERSION } from "../version.js";
@@ -26,7 +27,6 @@ import type {
 const PROTOCOL_VERSION = "2024-11-05";
 const CLIENT_NAME = "ds-forge";
 const CLIENT_VERSION = VERSION;
-const DEFAULT_TIMEOUT = 30_000;
 
 // ── Pending request tracker ───────────────────────────────────────
 
@@ -117,7 +117,7 @@ export class MCPClient {
   private _request(
     method: string,
     params?: Record<string, unknown>,
-    timeout = DEFAULT_TIMEOUT,
+    timeout = DEFAULT_TIMEOUT_MS,
   ): Promise<unknown> {
     const id = this.nextId++;
     const msg = { jsonrpc: "2.0" as const, id, method, params };

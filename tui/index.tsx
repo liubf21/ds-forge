@@ -11,7 +11,7 @@
 import React from "react";
 import { render } from "ink";
 import { resolve } from "node:path";
-import { AgentSession, DEFAULT_MODEL, type ReasoningEffort } from "../src/index.js";
+import { AgentSession, DEFAULT_AGENT_REASONING_EFFORT, DEFAULT_MAX_TURNS, DEFAULT_MODEL, type ReasoningEffort } from "../src/index.js";
 import App from "./app.js";
 
 function parseArgs(argv: string[]) {
@@ -24,8 +24,8 @@ function parseArgs(argv: string[]) {
   } = {
     cwd: process.cwd(),
     model: DEFAULT_MODEL,
-    reasoningEffort: "high",
-    maxTurns: 20,
+    reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
+    maxTurns: DEFAULT_MAX_TURNS,
   };
 
   let i = 0;

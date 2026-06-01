@@ -122,7 +122,7 @@ User → forge.chat("Hi")
 
 ### Agent loop (`run`)
 ```
-User → forge.run("Task", maxTurns=10)
+User → forge.run("Task", maxTurns=2000)
   → context.addUser("Task")
   → for turn in 0..maxTurns:
     → context.truncate()

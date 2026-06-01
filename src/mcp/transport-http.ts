@@ -8,6 +8,7 @@
  * plain JSON.
  */
 
+import { DEFAULT_TIMEOUT_MS } from "../defaults.js";
 import type { MCPTransport, TransportCallbacks, JSONRPCMessage } from "./types.js";
 
 export interface HTTPConfig {
@@ -49,7 +50,7 @@ export class HTTPTransport implements MCPTransport {
       headers["Mcp-Session-Id"] = this.sessionId;
     }
 
-    const timeout = this.config.timeout ?? 30_000;
+    const timeout = this.config.timeout ?? DEFAULT_TIMEOUT_MS;
     const timeoutAbort = new AbortController();
     const timer = setTimeout(() => timeoutAbort.abort(), timeout);
     const signal = AbortSignal.any([

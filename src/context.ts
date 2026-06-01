@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_TOKENS } from "./defaults.js";
 import type { MessageDict, ToolCall } from "./types.js";
 
 export type { MessageDict };
@@ -95,7 +96,7 @@ export interface MessageObj {
 export class Context {
   messages: MessageObj[] = [];
   tokenCounter: (msgs: MessageDict[]) => number = defaultTokenCounter;
-  maxTokens: number = 128_000;
+  maxTokens: number = DEFAULT_MAX_TOKENS;
 
   add(message: MessageObj): void {
     this.messages.push(message);
@@ -151,6 +152,20 @@ export class Context {
       }
       this.messages.splice(idx, 1);
     }
+  }
+
+  get length(): number {
+    return this.messages.length;
+  }
+
+  /** Shallow-copy the message array — safe against truncate(). */
+  snapshot(): MessageObj[] {
+    return this.messages.slice();
+  }
+
+  /** Restore from a previous snapshot. */
+  restore(snapshot: MessageObj[]): void {
+    this.messages = snapshot;
   }
 
   last(): MessageObj | undefined {

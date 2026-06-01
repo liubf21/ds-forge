@@ -1,4 +1,5 @@
 import { exec } from "node:child_process";
+import { DEFAULT_TIMEOUT_MS } from "./defaults.js";
 import { tool } from "./tools.js";
 
 export interface BashOptions {
@@ -12,7 +13,7 @@ export interface BashOptions {
 
 export function bashTool(opts: BashOptions = {}) {
   const {
-    timeout = 30_000,
+    timeout = DEFAULT_TIMEOUT_MS,
     maxOutput = 20_000,
     cwd,
   } = opts;
@@ -34,12 +35,16 @@ Max output: ${maxOutput} characters`,
       },
       required: ["command"],
     },
-    execute: async (args) => {
+    execute: async (args, signal) => {
       const cmd = String(args.command);
 
       return new Promise<string>((resolve) => {
         const child = exec(cmd, { cwd, timeout, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
           const parts: string[] = [];
+          if (signal?.aborted) {
+            resolve("[aborted]");
+            return;
+          }
           if (stdout) parts.push(stdout.trimEnd());
           if (stderr) parts.push(`[stderr]\n${stderr.trimEnd()}`);
           if (err && err.killed) parts.push("[timed out]");
@@ -52,6 +57,12 @@ Max output: ${maxOutput} characters`,
           }
           resolve(out);
         });
+
+        if (signal) {
+          const onAbort = () => { child.kill(); };
+          signal.addEventListener("abort", onAbort, { once: true });
+          child.on("exit", () => signal.removeEventListener("abort", onAbort));
+        }
       });
     },
   });

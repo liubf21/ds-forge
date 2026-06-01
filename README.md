@@ -64,7 +64,7 @@ DeepSeek's official examples use `https://api.deepseek.com` as `base_url`. The c
 | Method | Description |
 |---|---|
 | `chat(message, extra?)` | Single turn. Returns text, tool calls rendered as JSON. |
-| `run(message?, maxTurns?, extra?)` | Agent loop. Auto-executes tools, feeds results back. Stops when the model is done or `maxTurns` (default 10) is reached. |
+| `run(message?, maxTurns?, extra?)` | Agent loop. Auto-executes tools, feeds results back. Stops when the model is done or `maxTurns` (default `DEFAULT_MAX_TURNS`) is reached. |
 | `runStream(message?, maxTurns?, extra?)` | Same as `run`, but yields `StreamEvent` chunks (text deltas, tool calls, results). |
 | `resume(message?, maxTurns?, extra?)` | Alias for `run` — semantic clarity for loaded sessions. |
 | `save(path)` | Persist conversation to a JSON file. |

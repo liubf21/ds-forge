@@ -35,16 +35,17 @@ export class ToolRegistry {
     return Array.from(this.tools.values(), toolToOpenAISpec);
   }
 
-  async execute(name: string, args: Record<string, unknown>): Promise<string> {
+  async execute(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
     const t = this.tools.get(name);
     if (!t) {
       return `Error: Unknown tool '${name}'`;
     }
     try {
-      const result = await t.execute(args);
+      const result = await t.execute(args, signal);
       if (typeof result === "string") return result;
       return JSON.stringify(result);
     } catch (e) {
+      if (signal?.aborted) return "[aborted]";
       return `Error executing ${name}: ${e instanceof Error ? e.message : String(e)}`;
     }
   }

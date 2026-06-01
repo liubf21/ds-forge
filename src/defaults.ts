@@ -1,9 +1,15 @@
-/** DeepSeek V4 defaults for ds-forge. */
+/** ds-forge defaults — single source of truth for all tunables. */
 
 import type { ReasoningEffort } from "./types.js";
 
 export const DEFAULT_MODEL = "deepseek-v4-flash";
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
+export const DEFAULT_MAX_TURNS = 2000;
+export const DEFAULT_MAX_TOKENS = 128_000;
+export const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** Sentinel returned when agent loop exhausts maxTurns. */
+export const MAX_TURNS_REACHED = "[Max turns reached]";
 
 /** Default effort when tools are registered (agent mode). */
 export const DEFAULT_AGENT_REASONING_EFFORT: ReasoningEffort = "high";
