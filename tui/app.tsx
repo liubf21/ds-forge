@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
-import TextInput from "ink-text-input";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type { AgentSession } from "../src/agent-session.js";
 import { trajectoryLabel } from "../src/agent-session.js";
 import { MAX_TURNS_REACHED } from "../src/defaults.js";
@@ -13,6 +12,316 @@ import type { LiveTurn } from "./types.js";
 interface Props {
   session: AgentSession;
   maxTurns: number;
+}
+
+interface InputProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  placeholder?: string;
+  focus?: boolean;
+}
+
+interface Pos {
+  line: number;
+  col: number;
+  lines: string[];
+}
+
+function offsetToPos(text: string, offset: number): Pos {
+  const lines = text.split("\n");
+  let off = Math.max(0, Math.min(offset, text.length));
+  let line = 0;
+  while (line < lines.length - 1 && off > lines[line]!.length) {
+    off -= lines[line]!.length + 1;
+    line++;
+  }
+  return { line, col: Math.min(off, lines[line]!.length), lines };
+}
+
+function posToOffset(lines: string[], line: number, col: number): number {
+  const li = Math.max(0, Math.min(line, lines.length - 1));
+  let off = 0;
+  for (let i = 0; i < li; i++) off += lines[i]!.length + 1;
+  return off + Math.min(col, lines[li]!.length);
+}
+
+/** Subset of Ink's Key we care about; all optional so Ink's Key is assignable. */
+export type InputKey = {
+  return?: boolean;
+  shift?: boolean;
+  meta?: boolean;
+  ctrl?: boolean;
+  escape?: boolean;
+  tab?: boolean;
+  leftArrow?: boolean;
+  rightArrow?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+  backspace?: boolean;
+  delete?: boolean;
+};
+
+export interface KeyResult {
+  value: string;
+  cursor: number;
+  submit: boolean;
+}
+
+/**
+ * Pure keystroke reducer — the heart of the input, kept side-effect-free so it
+ * can be unit-tested by feeding it Ink-parsed keys (see tui_test.ts).
+ */
+export function reduceKey(
+  value: string,
+  cursor: number,
+  input: string,
+  key: InputKey,
+): KeyResult {
+  const keep: KeyResult = { value, cursor, submit: false };
+  const insertAt = (text: string): KeyResult => ({
+    value: value.slice(0, cursor) + text + value.slice(cursor),
+    cursor: cursor + text.length,
+    submit: false,
+  });
+
+  if (key.tab) return keep;
+  if (key.ctrl && input === "c") return keep; // handled globally (quit)
+
+  // Enter + a newline modifier (kitty / configured iTerm / VS Code report this).
+  if (key.return && (key.shift || key.meta)) return insertAt("\n");
+  // Plain Enter -> submit.
+  if (key.return) return { value, cursor, submit: true };
+
+  if (key.leftArrow) return { value, cursor: Math.max(0, cursor - 1), submit: false };
+  if (key.rightArrow)
+    return { value, cursor: Math.min(value.length, cursor + 1), submit: false };
+
+  if (key.upArrow || key.downArrow) {
+    const { line, col, lines } = offsetToPos(value, cursor);
+    const target = line + (key.upArrow ? -1 : 1);
+    if (target < 0 || target > lines.length - 1) return keep;
+    return { value, cursor: posToOffset(lines, target, col), submit: false };
+  }
+
+  if (key.backspace || key.delete) {
+    if (cursor > 0)
+      return {
+        value: value.slice(0, cursor - 1) + value.slice(cursor),
+        cursor: cursor - 1,
+        submit: false,
+      };
+    return keep;
+  }
+
+  if (key.ctrl || key.meta || key.escape) return keep;
+
+  if (input) {
+    // Option+Enter reaches here as a bare CR -- Ink parses "\x1b\r" as no named key
+    // and strips the ESC, so it never sets `key.return`. Pasted text may also carry
+    // CR / CRLF. Normalize CR(LF) to LF, then drop any stray C0 control chars (e.g. a
+    // leftover ESC when several modifier+Enter presses batch into one chunk) so they
+    // never land in the text as invisible garbage.
+    const text = input
+      .replace(/\r\n?/g, "\n")
+      .replace(/[\x00-\x08\x0b-\x1f]/g, "");
+    if (text) return insertAt(text);
+    return keep;
+  }
+
+  return keep;
+}
+
+/** Approximate display width: CJK / fullwidth / most emoji are 2 cols, else 1. */
+function charWidth(cp: number): number {
+  if (
+    (cp >= 0x1100 && cp <= 0x115f) ||
+    (cp >= 0x2e80 && cp <= 0x303e) ||
+    (cp >= 0x3041 && cp <= 0x33ff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xa000 && cp <= 0xa4cf) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe30 && cp <= 0xfe4f) ||
+    (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1faff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd)
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+export interface VisualRow {
+  text: string;
+  /** Logical line index this row belongs to. */
+  line: number;
+  /** UTF-16 offset within the logical line where this row begins. */
+  start: number;
+}
+
+/** Soft-wrap logical lines into visual rows no wider than `width` columns. */
+export function wrapLines(lines: string[], width: number): VisualRow[] {
+  const rows: VisualRow[] = [];
+  const w = Math.max(1, width);
+  for (let line = 0; line < lines.length; line++) {
+    const text = lines[line]!;
+    if (text.length === 0) {
+      rows.push({ text: "", line, start: 0 });
+      continue;
+    }
+    let cur = "";
+    let curW = 0;
+    let start = 0;
+    let idx = 0;
+    for (const ch of text) {
+      const cw = charWidth(ch.codePointAt(0)!);
+      if (curW + cw > w && cur.length > 0) {
+        rows.push({ text: cur, line, start });
+        cur = ch;
+        curW = cw;
+        start = idx;
+      } else {
+        cur += ch;
+        curW += cw;
+      }
+      idx += ch.length;
+    }
+    rows.push({ text: cur, line, start });
+  }
+  return rows;
+}
+
+/** Index of the visual row holding the cursor (given its logical line + offset). */
+export function cursorVisualRow(
+  rows: VisualRow[],
+  line: number,
+  col: number,
+): number {
+  let last = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!;
+    if (r.line !== line) continue;
+    last = i;
+    if (col < r.start + r.text.length) return i;
+  }
+  return last; // cursor sits at the end of the logical line
+}
+
+/**
+ * Multi-line text input for Ink.
+ *
+ * - Enter            → submit
+ * - Shift+Enter      → newline (terminals that report shift on return)
+ * - Alt/Option+Enter → newline (reliable fallback in most terminals)
+ * - Pasted newlines are kept verbatim (never auto-submit).
+ *
+ * Replaces ink-text-input, which is single-line and corrupts its display
+ * once a "\n" enters the value.
+ */
+function MultilineInput({
+  value,
+  onChange,
+  onSubmit,
+  placeholder = "",
+  focus = true,
+}: InputProps) {
+  const { stdout } = useStdout();
+
+  // Single synchronous source of truth. Keeping {value, cursor} in a ref (instead
+  // of parent-prop value + local-state cursor) means rapid key events never read a
+  // stale closure — otherwise fast typing drops characters and desyncs the cursor,
+  // which transiently mis-renders the box.
+  const stRef = useRef({ value, cursor: value.length });
+  const [, bump] = useState(0);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+
+  // Pull external value changes (submit clears, /clear, resume) into local state.
+  useEffect(() => {
+    if (value !== stRef.current.value) {
+      stRef.current = {
+        value,
+        cursor: Math.min(stRef.current.cursor, value.length),
+      };
+      bump((n) => n + 1);
+    }
+  }, [value]);
+
+  useInput(
+    (input, key) => {
+      const s = stRef.current;
+      const r = reduceKey(s.value, s.cursor, input, key);
+      if (r.submit) {
+        onSubmitRef.current(s.value);
+        return;
+      }
+      if (r.value === s.value && r.cursor === s.cursor) return;
+      stRef.current = { value: r.value, cursor: r.cursor };
+      bump((n) => n + 1);
+      if (r.value !== s.value) onChangeRef.current(r.value);
+    },
+    { isActive: focus },
+  );
+
+  const { value: curValue, cursor: curCursor } = stRef.current;
+
+  // Give the input column an EXPLICIT width and pre-wrap text to it (minus 1 col for
+  // the end-of-line cursor). Ink then never re-wraps a row, so each <Text> is exactly
+  // one visual row: the box height is correct (no border drawn over text) and nothing
+  // is truncated to "…". Width is left a little short of the true inner width so the
+  // bordered box can never exceed the terminal.
+  const colWidth = Math.max(4, (stdout?.columns ?? 80) - 7);
+  const wrapWidth = Math.max(1, colWidth - 1);
+
+  if (curValue.length === 0) {
+    return (
+      <Box flexShrink={0} width={colWidth}>
+        <Text inverse> </Text>
+        {placeholder ? <Text dimColor>{placeholder}</Text> : null}
+      </Box>
+    );
+  }
+
+  const { line: cLine, col: cCol, lines } = offsetToPos(curValue, curCursor);
+  const rows = wrapLines(lines, wrapWidth);
+  const cap = Math.max(3, (stdout?.rows ?? 24) - 8);
+  const cRow = cursorVisualRow(rows, cLine, cCol);
+  const total = rows.length;
+  const start = Math.min(Math.max(0, cRow - cap + 1), Math.max(0, total - cap));
+  const end = Math.min(total, start + cap);
+  const above = start;
+  const below = total - end;
+
+  return (
+    <Box flexDirection="column" flexShrink={0} width={colWidth}>
+      {above > 0 && <Text dimColor>{`\u2191 ${above} more above`}</Text>}
+      {rows.slice(start, end).map((r, idx) => {
+        const i = start + idx;
+        if (i !== cRow) {
+          return (
+            <Text key={i} wrap="wrap">
+              {r.text.length === 0 ? " " : r.text}
+            </Text>
+          );
+        }
+        const within = cCol - r.start;
+        const ch = r.text[within] ?? " ";
+        return (
+          <Text key={i} wrap="wrap">
+            {r.text.slice(0, within)}
+            <Text inverse>{ch}</Text>
+            {r.text.slice(within + 1)}
+          </Text>
+        );
+      })}
+      {below > 0 && <Text dimColor>{`\u2193 ${below} more below`}</Text>}
+    </Box>
+  );
 }
 
 export default function App({ session, maxTurns }: Props) {
@@ -250,7 +559,7 @@ export default function App({ session, maxTurns }: Props) {
             <Text color="cyan" bold>
               ❯{" "}
             </Text>
-            <TextInput
+            <MultilineInput
               value={input}
               onChange={setInput}
               onSubmit={submit}
