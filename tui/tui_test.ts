@@ -17,6 +17,17 @@ import { chatReducer, visibleHistory, MAX_VISIBLE_MESSAGES } from "./chat-state.
 import { applyEvent, formatToolCommand, formatToolStatus } from "./display.js";
 import { historyFromContext } from "./history.js";
 import { fileUrl, linkText } from "./links.js";
+import {
+  reduceKey,
+  wrapLines,
+  cursorVisualRow,
+  type InputKey,
+} from "./app.js";
+// Direct file path bypasses ink's exports map (only "." is exported). Lets the
+// test feed real Ink-parsed keystrokes through reduceKey — genuine end-to-end.
+import parseKeypress, {
+  nonAlphanumericKeys,
+} from "../node_modules/ink/build/parse-keypress.js";
 
 const VERBOSE = !!process.env.TUI_TEST_VERBOSE;
 const TEST_KEY = "test-key";
@@ -283,6 +294,112 @@ function test_agentSession_resume_system_override() {
   }
 }
 
+/** Replicate Ink useInput's (input, key) construction from a raw byte sequence. */
+function inkInput(bytes: string): { input: string; key: InputKey } {
+  const kp = parseKeypress(Buffer.from(bytes));
+  const key: InputKey = {
+    upArrow: kp.name === "up",
+    downArrow: kp.name === "down",
+    leftArrow: kp.name === "left",
+    rightArrow: kp.name === "right",
+    return: kp.name === "return",
+    escape: kp.name === "escape",
+    ctrl: kp.ctrl,
+    shift: kp.shift,
+    tab: kp.name === "tab",
+    backspace: kp.name === "backspace",
+    delete: kp.name === "delete",
+    meta: kp.meta || kp.name === "escape" || (kp as { option?: boolean }).option,
+  };
+  let input = kp.ctrl ? kp.name : kp.sequence;
+  if (nonAlphanumericKeys.includes(kp.name)) input = "";
+  if (input.startsWith("\u001B")) input = input.slice(1);
+  return { input, key };
+}
+
+function feed(value: string, cursor: number, bytes: string) {
+  const { input, key } = inkInput(bytes);
+  return reduceKey(value, cursor, input, key);
+}
+
+/** The core bug: Option+Enter must insert a newline, not submit, not a bare CR. */
+function test_multiline_option_enter_inserts_newline() {
+  let value = "";
+  let cursor = 0;
+  for (const ch of "ab") {
+    const r = feed(value, cursor, ch);
+    value = r.value;
+    cursor = r.cursor;
+  }
+  assert.equal(value, "ab");
+
+  // Option+Enter = ESC + CR. Ink reports return:false and input:"\r".
+  const oe = feed(value, cursor, "\x1b\r");
+  assert.equal(oe.submit, false, "Option+Enter must NOT submit");
+  assert.equal(oe.value, "ab\n", "Option+Enter must insert a real newline (not \\r)");
+  value = oe.value;
+  cursor = oe.cursor;
+
+  for (const ch of "cd") {
+    const r = feed(value, cursor, ch);
+    value = r.value;
+    cursor = r.cursor;
+  }
+  assert.equal(value, "ab\ncd");
+
+  // Plain Enter submits, value untouched.
+  const ent = feed(value, cursor, "\r");
+  assert.equal(ent.submit, true, "plain Enter submits");
+  assert.equal(ent.value, "ab\ncd");
+}
+
+function test_multiline_strips_stray_control_chars() {
+  // Two Option+Enter presses batched into one chunk arrive as "\r\x1b\r".
+  const r = reduceKey("", 0, "\r\u001b\r", {});
+  assert.equal(r.value, "\n\n", "CRs become newlines, stray ESC dropped");
+  assert.equal(r.submit, false);
+  // A bare ESC in the input must not insert anything.
+  const e = reduceKey("ab", 2, "\u001b", {});
+  assert.equal(e.value, "ab");
+}
+
+function test_multiline_paste_and_backspace() {
+  const paste = feed("", 0, "x\r\ny"); // CRLF in a paste
+  assert.equal(paste.value, "x\ny", "CRLF normalized to one newline");
+  assert.equal(paste.submit, false);
+
+  const bs = feed("ab", 2, "\x7f"); // backspace/delete byte
+  assert.equal(bs.value, "a");
+  assert.equal(bs.cursor, 1);
+}
+
+function test_wrapLines() {
+  const rows = wrapLines(["abcdef"], 3);
+  assert.deepEqual(rows.map((r) => r.text), ["abc", "def"]);
+  assert.deepEqual(rows.map((r) => r.start), [0, 3]);
+
+  // width 4 fits exactly two double-width CJK chars per row
+  const z = wrapLines(["\u4f60\u597d\u4e16\u754c"], 4);
+  assert.deepEqual(z.map((r) => r.text), ["\u4f60\u597d", "\u4e16\u754c"]);
+
+  // empty logical lines survive as their own row
+  const e = wrapLines(["a", "", "b"], 10);
+  assert.equal(e.length, 3);
+  assert.deepEqual(e.map((r) => r.line), [0, 1, 2]);
+}
+
+function test_cursorVisualRow() {
+  const rows = wrapLines(["abcdef"], 3); // ["abc"@0, "def"@3]
+  assert.equal(cursorVisualRow(rows, 0, 0), 0);
+  assert.equal(cursorVisualRow(rows, 0, 2), 0);
+  assert.equal(cursorVisualRow(rows, 0, 3), 1, "boundary moves to wrapped row");
+  assert.equal(cursorVisualRow(rows, 0, 6), 1, "end of line stays on last row");
+
+  const multi = wrapLines(["ab", "cdefgh"], 3); // ["ab"@0(l0), "cde"@0(l1), "fgh"@3(l1)]
+  assert.equal(cursorVisualRow(multi, 1, 0), 1);
+  assert.equal(cursorVisualRow(multi, 1, 4), 2);
+}
+
 async function main() {
   console.log("TUI Test Suite\n");
 
@@ -294,6 +411,11 @@ async function main() {
   await check("formatToolCommand bash JSON", test_formatToolCommand_bash_json)();
   await check("historyFromContext", test_historyFromContext)();
   await check("visibleHistory caps", test_visibleHistory_caps)();
+  await check("multiline Option+Enter inserts newline", test_multiline_option_enter_inserts_newline)();
+  await check("multiline paste CRLF + backspace", test_multiline_paste_and_backspace)();
+  await check("multiline strips stray control chars", test_multiline_strips_stray_control_chars)();
+  await check("wrapLines splits by width", test_wrapLines)();
+  await check("cursorVisualRow mapping", test_cursorVisualRow)();
   await check("terminal OSC 8 links", test_terminal_links)();
   await check("AgentSession.clear keeps custom system", test_agentSession_clear_keeps_custom_system)();
   await check("messagesForApi reasoning-only assistant", test_messagesForApi_reasoning_only_assistant)();
