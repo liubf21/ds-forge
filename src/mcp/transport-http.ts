@@ -105,27 +105,64 @@ export class HTTPTransport implements MCPTransport {
   /** Parse SSE event stream, emitting each "message" event as a JSON-RPC message. */
   private async parseSSE(resp: Response): Promise<void> {
     const text = await resp.text();
-    const lines = text.split("\n");
-    let eventType = "";
-    let data = "";
-
-    for (const line of lines) {
-      if (line.startsWith("event: ")) {
-        eventType = line.slice(7).trim();
-      } else if (line.startsWith("data: ")) {
-        data += line.slice(6);
-      } else if (line === "" && data) {
-        if (eventType === "message" || eventType === "") {
-          try {
-            const msg = JSON.parse(data) as JSONRPCMessage;
-            this.cbs?.onMessage(msg);
-          } catch {
-            throw new Error(`Unparseable SSE data: ${data.slice(0, 200)}`);
-          }
-        }
-        eventType = "";
-        data = "";
-      }
+    for (const msg of parseSSEMessages(text)) {
+      this.cbs?.onMessage(msg);
     }
   }
+}
+
+/**
+ * Parse a full SSE stream body into JSON-RPC messages per the SSE framing
+ * rules (https://html.spec.whatwg.org/multipage/server-sent-events.html):
+ *
+ *   - Lines are split on CRLF, CR, or LF, so CRLF streams leave no stray `\r`.
+ *   - A line of `field:value` strips one optional leading space from the value.
+ *   - Multiple `data:` lines accumulate, joined by `\n` (not concatenated).
+ *   - Lines beginning with `:` are comments and are ignored (they do not
+ *     touch the buffered data).
+ *   - A blank line dispatches the buffered event; an unterminated final event
+ *     is dispatched once the stream ends.
+ *
+ * Only the default and "message" event types surface as messages. Unparseable
+ * JSON in a dispatched event throws — a malformed stream is a hard error.
+ *
+ * Exported for unit testing; the transport consumes it via parseSSE().
+ */
+export function parseSSEMessages(body: string): JSONRPCMessage[] {
+  const out: JSONRPCMessage[] = [];
+  let eventType = "";
+  let dataLines: string[] = [];
+
+  const dispatch = () => {
+    if (dataLines.length > 0 && (eventType === "" || eventType === "message")) {
+      const data = dataLines.join("\n");
+      try {
+        out.push(JSON.parse(data) as JSONRPCMessage);
+      } catch {
+        throw new Error(`Unparseable SSE data: ${data.slice(0, 200)}`);
+      }
+    }
+    eventType = "";
+    dataLines = [];
+  };
+
+  for (const line of body.split(/\r\n|\r|\n/)) {
+    if (line === "") {
+      dispatch();
+      continue;
+    }
+    if (line.startsWith(":")) continue; // comment
+
+    const colon = line.indexOf(":");
+    const field = colon === -1 ? line : line.slice(0, colon);
+    let value = colon === -1 ? "" : line.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+
+    if (field === "event") eventType = value;
+    else if (field === "data") dataLines.push(value);
+    // id / retry / unknown fields are ignored
+  }
+
+  dispatch(); // flush a trailing event with no terminating blank line
+  return out;
 }

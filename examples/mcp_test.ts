@@ -21,6 +21,7 @@ import {
   StdioTransport,
   HTTPTransport,
 } from "../src/index.js";
+import { parseSSEMessages } from "../src/mcp/transport-http.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER = resolve(__dirname, "mcp_echo_server.ts");
@@ -489,6 +490,51 @@ async function startHttpEchoServer(): Promise<{ port: number; close(): void }> {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// 8b. SSE FRAMING (pure parser)
+// ──────────────────────────────────────────────────────────────────
+
+function test_sse_parsing() {
+  // CRLF terminators must not leave a stray \r on the parsed data.
+  const crlf = parseSSEMessages(
+    'event: message\r\ndata: {"jsonrpc":"2.0","id":1,"result":1}\r\n\r\n',
+  );
+  assert.strictEqual(crlf.length, 1);
+  assert.strictEqual((crlf[0] as any).id, 1);
+
+  // Multiple data: lines join with \n (not concatenated), per spec.
+  const multi = parseSSEMessages('data: {"a":1,\ndata: "b":2}\n\n');
+  assert.deepStrictEqual(multi[0], { a: 1, b: 2 });
+
+  // Comments (leading ':') are ignored and do not corrupt buffered data.
+  const commented = parseSSEMessages(
+    ': keep-alive\ndata: {"ok":true}\n\n',
+  );
+  assert.deepStrictEqual(commented[0], { ok: true });
+
+  // A final event with no terminating blank line is still dispatched.
+  const trailing = parseSSEMessages('data: {"id":7}');
+  assert.strictEqual((trailing[0] as any).id, 7);
+
+  // Optional single leading space is stripped; absence is tolerated.
+  const noSpace = parseSSEMessages('data:{"id":9}\n\n');
+  assert.strictEqual((noSpace[0] as any).id, 9);
+
+  // Non-"message" events are skipped; only message/default surface.
+  const mixed = parseSSEMessages(
+    'event: ping\ndata: {"skip":1}\n\ndata: {"keep":1}\n\n',
+  );
+  assert.strictEqual(mixed.length, 1);
+  assert.deepStrictEqual(mixed[0], { keep: 1 });
+
+  // Multiple events in one stream all dispatch in order.
+  const two = parseSSEMessages('data: {"id":1}\n\ndata: {"id":2}\n\n');
+  assert.deepStrictEqual(two.map((m) => (m as any).id), [1, 2]);
+
+  // Unparseable JSON in a dispatched event is a hard error.
+  assert.throws(() => parseSSEMessages("data: not-json\n\n"), /Unparseable SSE/);
+}
+
+// ──────────────────────────────────────────────────────────────────
 // 9. END-TO-END: FORGE AGENT LOOP + MCP TOOLS (mocked model)
 // ──────────────────────────────────────────────────────────────────
 //
@@ -625,6 +671,7 @@ async function main() {
   await check("request timeout", test_timeout)();
   await check("HTTP transport", test_http_transport)();
   await check("HTTP failure fast-fail", test_http_failure_fast)();
+  await check("SSE framing parser", test_sse_parsing)();
   await check("server-initiated request", test_server_request)();
   await check("E2E Forge + MCP (mocked model)", test_e2e_forge_mcp)();
 
