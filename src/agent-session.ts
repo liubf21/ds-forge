@@ -68,6 +68,7 @@ export class AgentSession {
   clear(): string {
     this.forge.context.clear();
     this.forge.context.addSystem(this._system);
+    this.forge.resetTrajectoryState();
     this._trajPath = createTrajectoryPath();
     return this._trajPath;
   }

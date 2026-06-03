@@ -85,6 +85,8 @@ export class ForgeError extends Error {
   }
 }
 
+export type { UsageRecord } from "./usage.js";
+
 /** Events emitted by `Forge.runStream()`. */
 export type StreamEvent =
   | { type: "text_delta"; delta: string }

@@ -6,6 +6,8 @@ import type { Forge } from "./forge.js";
 import type { ToolRegistry } from "./tools.js";
 import { VERSION } from "./version.js";
 
+export type { UsageRecord } from "./usage.js";
+
 export interface SessionData {
   version: string;
   model: string;
@@ -36,8 +38,9 @@ export class Session {
       forge.context.toList(),
       forge.tools.toOpenAISpecs(),
       {
-        created_at: new Date().toISOString(),
+        created_at: forge.createdAt,
         message_count: forge.context.messages.length,
+        usage_log: forge.usageLog,
       },
     );
   }

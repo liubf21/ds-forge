@@ -12,6 +12,7 @@ import {
 } from "./defaults.js";
 import { Session } from "./session.js";
 import { ToolRegistry } from "./tools.js";
+import { parseUsage, parseUsageLog, type UsageRecord } from "./usage.js";
 import type {
   ForgeConfig,
   ForgeLoadConfig,
@@ -46,6 +47,9 @@ export class Forge {
   readonly tools: ToolRegistry;
   readonly reasoningEffort: ReasoningEffort;
   context: Context;
+  /** Cumulative API usage per model call (persisted in trajectory `metadata.usage_log`). */
+  readonly usageLog: UsageRecord[] = [];
+  private _createdAt: string;
   private _maxTokens: number;
 
   constructor(config: ForgeConfig = {}) {
@@ -75,11 +79,32 @@ export class Forge {
       this.tools.size > 0,
     );
 
+    this._createdAt = new Date().toISOString();
     this.context = new Context();
     this.context.maxTokens = this._maxTokens;
     if (config.system) {
       this.context.addSystem(config.system);
     }
+  }
+
+  get createdAt(): string {
+    return this._createdAt;
+  }
+
+  /** Reset usage + created_at when starting a fresh trajectory (e.g. TUI `/clear`). */
+  resetTrajectoryState(): void {
+    this.usageLog.length = 0;
+    this._createdAt = new Date().toISOString();
+  }
+
+  private _recordUsage(
+    usage: OpenAI.Completions.CompletionUsage | undefined,
+  ): void {
+    const rec = parseUsage(
+      usage as unknown as Record<string, unknown> | undefined,
+      this.usageLog.length,
+    );
+    if (rec) this.usageLog.push(rec);
   }
 
   private _modelExtra(userExtra?: Record<string, unknown>): Record<string, unknown> {
@@ -104,6 +129,8 @@ export class Forge {
       tools,
       ...this._modelExtra(extra),
     });
+
+    this._recordUsage(response.usage);
 
     const msg = response.choices[0]!.message as AssistantMessage;
     const toolCalls = msg.tool_calls?.length
@@ -206,15 +233,18 @@ export class Forge {
         tools,
         ...this._modelExtra(extra),
         stream: true,
+        stream_options: { include_usage: true },
       },
       signal ? { signal } : undefined,
     );
 
     let content = "";
     let reasoningContent = "";
+    let streamUsage: OpenAI.Completions.CompletionUsage | undefined;
     const acc = new Map<number, { id: string; name: string; arguments: string }>();
 
     for await (const chunk of stream) {
+      if (chunk.usage) streamUsage = chunk.usage;
       const delta = chunk.choices[0]?.delta as
         | (OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta & {
             reasoning_content?: string | null;
@@ -255,6 +285,8 @@ export class Forge {
               function: { name: v.name, arguments: v.arguments },
             }))
         : null;
+
+    this._recordUsage(streamUsage);
 
     return {
       content: content || null,
@@ -356,6 +388,11 @@ export class Forge {
       reasoningEffort: config.reasoningEffort,
     });
     forge.context = Context.fromDicts(session.messages);
+    forge._createdAt =
+      typeof session.metadata.created_at === "string"
+        ? session.metadata.created_at
+        : new Date().toISOString();
+    forge.usageLog.push(...parseUsageLog(session.metadata.usage_log));
 
     if (config.tools && config.tools.length > 0) {
       session.validateTools(forge.tools);

@@ -7,10 +7,12 @@
  */
 
 import assert from "node:assert";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { AgentSession } from "../src/agent-session.js";
+import { Forge } from "../src/forge.js";
+import { parseUsage, parseUsageLog } from "../src/usage.js";
 import { messagesForApi, messageFromDict } from "../src/context.js";
 import type { StreamEvent } from "../src/types.js";
 import { chatReducer, visibleHistory, MAX_VISIBLE_MESSAGES } from "./chat-state.js";
@@ -19,6 +21,11 @@ import { historyFromContext } from "./history.js";
 import { fileUrl, linkText } from "./links.js";
 import {
   reduceKey,
+  isModifiedEnterInput,
+  isCsiPlainEnterInput,
+  inputContainsCsiPlainEnter,
+  normalizeTextInput,
+  textToInsertAtCursor,
   wrapLines,
   cursorVisualRow,
   type InputKey,
@@ -256,6 +263,87 @@ function test_agentSession_resume_reasoning_effort() {
   }
 }
 
+function test_parseUsage_cache_fields() {
+  const rec = parseUsage(
+    {
+      prompt_tokens: 1000,
+      completion_tokens: 50,
+      total_tokens: 1050,
+      prompt_cache_hit_tokens: 800,
+      prompt_cache_miss_tokens: 200,
+    },
+    0,
+  );
+  assert.ok(rec);
+  assert.equal(rec.prompt_cache_hit_tokens, 800);
+  assert.equal(rec.prompt_cache_miss_tokens, 200);
+  assert.equal(rec.turn, 0);
+}
+
+function test_session_usage_log_round_trip() {
+  const path = join(tmpdir(), `ds-forge-usage-${Date.now()}.json`);
+  const created = "2026-06-01T00:00:00.000Z";
+  const usageLog = [
+    {
+      turn: 0,
+      at: "2026-06-01T00:01:00.000Z",
+      prompt_tokens: 500,
+      completion_tokens: 10,
+      total_tokens: 510,
+      prompt_cache_hit_tokens: 400,
+      prompt_cache_miss_tokens: 100,
+    },
+  ];
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: "0.1.0",
+      model: "deepseek-v4-flash",
+      system: "test",
+      tools: [],
+      messages: [{ role: "system", content: "test" }],
+      metadata: { created_at: created, message_count: 1, usage_log: usageLog },
+    }),
+  );
+
+  const forge = Forge.load(path, { apiKey: TEST_KEY });
+  assert.equal(forge.usageLog.length, 1);
+  assert.equal(forge.usageLog[0]?.prompt_cache_hit_tokens, 400);
+  assert.equal(forge.createdAt, created);
+
+  forge.save(path);
+  const saved = JSON.parse(readFileSync(path, "utf-8"));
+  assert.equal(saved.metadata.created_at, created);
+  assert.equal(saved.metadata.usage_log.length, 1);
+  assert.equal(
+    parseUsageLog(saved.metadata.usage_log)[0]?.prompt_cache_miss_tokens,
+    100,
+  );
+}
+
+function test_agentSession_clear_resets_usage_log() {
+  const session = AgentSession.open({
+    apiKey: TEST_KEY,
+    cwd: TEST_CWD,
+    system: "CUSTOM",
+    tools: [],
+  });
+  session.forge.usageLog.push(
+    parseUsage(
+      {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+        prompt_cache_hit_tokens: 0,
+        prompt_cache_miss_tokens: 1,
+      },
+      0,
+    )!,
+  );
+  session.clear();
+  assert.equal(session.forge.usageLog.length, 0);
+}
+
 function test_agentSession_resume_system_override() {
   const trajDir = mkdtempSync(join(tmpdir(), "ds-forge-traj-"));
   const prev = process.env.DS_FORGE_DIR;
@@ -368,9 +456,70 @@ function test_multiline_paste_and_backspace() {
   assert.equal(paste.value, "x\ny", "CRLF normalized to one newline");
   assert.equal(paste.submit, false);
 
-  const bs = feed("ab", 2, "\x7f"); // backspace/delete byte
+  const bs = feed("ab", 2, "\x08"); // backspace
   assert.equal(bs.value, "a");
   assert.equal(bs.cursor, 1);
+
+  const del = feed("ab", 1, "\x1b[3~"); // forward delete 'b'
+  assert.equal(del.value, "a");
+  assert.equal(del.cursor, 1);
+
+  const del2 = feed("ab", 0, "\x7f"); // DEL byte (Ink names it delete)
+  assert.equal(del2.value, "b");
+  assert.equal(del2.cursor, 0);
+}
+
+function test_multiline_shift_enter_csi_u() {
+  assert.equal(isModifiedEnterInput("[13;2u"), true);
+  assert.equal(isModifiedEnterInput("\x1b[13;2u"), true);
+  assert.equal(isModifiedEnterInput("[13;3u"), true, "Alt+Enter CSI-u");
+  assert.equal(isModifiedEnterInput("[13;1u"), false, "modifier 1 is not Shift+Enter");
+  assert.equal(isModifiedEnterInput("[13u"), false);
+  assert.equal(isModifiedEnterInput("ab"), false);
+
+  assert.equal(isCsiPlainEnterInput("[13;1u"), true);
+  assert.equal(isCsiPlainEnterInput("[13u"), true);
+  assert.equal(normalizeTextInput("line1\x1b[13;2uline2"), "line1\nline2");
+  assert.equal(textToInsertAtCursor("line1", 5, "line1\x1b[13;2uline2"), "\nline2");
+  assert.equal(textToInsertAtCursor("abc", 3, "abcdef"), "abcdef", "paste keeps full text");
+
+  assert.equal(inputContainsCsiPlainEnter("hello\x1b[13;1u"), true);
+
+  const plain = reduceKey("draft", 5, "\x1b[13;1u", {});
+  assert.equal(plain.submit, true, "CSI-u plain Enter submits");
+  assert.equal(plain.value, "draft");
+
+  const batchedPlain = reduceKey("", 0, "hello\x1b[13;1u", {});
+  assert.equal(batchedPlain.value, "hello");
+  assert.equal(batchedPlain.submit, true, "batched CSI-u plain Enter inserts then submits");
+
+  const echoPlain = reduceKey("line1", 5, "line1\x1b[13;1u", {});
+  assert.equal(echoPlain.value, "line1");
+  assert.equal(echoPlain.submit, true);
+
+  const r = feed("line1", 5, "\x1b[13;2u");
+  assert.equal(r.submit, false, "CSI-u Shift+Enter must not submit");
+  assert.equal(r.value, "line1\n", "CSI-u Shift+Enter inserts newline");
+  assert.equal(r.cursor, 6);
+
+  const batched = reduceKey("line1", 5, "line1\x1b[13;2uline2", {});
+  assert.equal(batched.value, "line1\nline2", "batched chunk embeds CSI-u as newline");
+  assert.equal(batched.cursor, 11);
+
+  const suffixOnly = reduceKey("line1", 5, "\x1b[13;2uline2", {});
+  assert.equal(suffixOnly.value, "line1\nline2");
+
+  const paste = reduceKey("abc", 3, "abcdef", {});
+  assert.equal(paste.value, "abcabcdef");
+  assert.equal(paste.cursor, 9);
+
+  const literalMod = reduceKey("", 0, "foo[13;2ubar", {});
+  assert.equal(literalMod.value, "foo[13;2ubar", "literal [13;2u in paste is not CSI-u");
+  assert.equal(literalMod.submit, false);
+
+  const literalPlain = reduceKey("", 0, "foo[13u", {});
+  assert.equal(literalPlain.value, "foo[13u");
+  assert.equal(literalPlain.submit, false);
 }
 
 function test_wrapLines() {
@@ -412,7 +561,8 @@ async function main() {
   await check("historyFromContext", test_historyFromContext)();
   await check("visibleHistory caps", test_visibleHistory_caps)();
   await check("multiline Option+Enter inserts newline", test_multiline_option_enter_inserts_newline)();
-  await check("multiline paste CRLF + backspace", test_multiline_paste_and_backspace)();
+  await check("multiline paste CRLF + backspace/delete", test_multiline_paste_and_backspace)();
+  await check("multiline Shift+Enter CSI-u", test_multiline_shift_enter_csi_u)();
   await check("multiline strips stray control chars", test_multiline_strips_stray_control_chars)();
   await check("wrapLines splits by width", test_wrapLines)();
   await check("cursorVisualRow mapping", test_cursorVisualRow)();
@@ -423,6 +573,9 @@ async function main() {
   await check("messageFromDict promotes reasoning-only", test_messageFromDict_promotes_reasoning_only)();
   await check("AgentSession resume reasoningEffort", test_agentSession_resume_reasoning_effort)();
   await check("AgentSession resume+system override", test_agentSession_resume_system_override)();
+  await check("parseUsage cache fields", test_parseUsage_cache_fields)();
+  await check("session usage_log round-trip", test_session_usage_log_round_trip)();
+  await check("AgentSession.clear resets usage_log", test_agentSession_clear_resets_usage_log)();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

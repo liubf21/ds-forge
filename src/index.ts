@@ -3,7 +3,7 @@ export { tool, ToolRegistry } from "./tools.js";
 export { Context, messageToDict, messageFromDict, defaultTokenCounter, messagesForApi, normalizeAssistantFields } from "./context.js";
 export type { MessageObj, MessageDict } from "./context.js";
 export { Session } from "./session.js";
-export type { SessionData } from "./session.js";
+export type { SessionData, UsageRecord } from "./session.js";
 export { bashTool } from "./bash.js";
 export type { BashOptions } from "./bash.js";
 export {

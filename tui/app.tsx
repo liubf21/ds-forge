@@ -69,6 +69,80 @@ export interface KeyResult {
 }
 
 /**
+ * Embedded CSI-u in a batched chunk — must include ESC. Literal `[13;2u` in paste
+ * is left untouched; standalone `[13;2u` / `[13u` is handled via is*EnterInput().
+ */
+const CSI_MODIFIED_ENTER_EMBED_G = /\x1b\[13;(\d+)u/g;
+const CSI_PLAIN_ENTER_EMBED = /\x1b\[13(?:;1)?u/;
+const CSI_PLAIN_ENTER_EMBED_G = /\x1b\[13(?:;1)?u/g;
+
+function csiEnterModifierInsertsNewline(mod: string): boolean {
+  return Number(mod) > 1;
+}
+
+/**
+ * True when `input` is only a CSI-u modified Enter (no batched typing).
+ * Ink 5 often leaves `input` as `[13;2u` with `key.return=false`.
+ */
+export function isModifiedEnterInput(input: string): boolean {
+  const seq = input.startsWith("\x1b") ? input.slice(1) : input;
+  const m = /^\[13;(\d+)u$/.exec(seq);
+  return m !== null && csiEnterModifierInsertsNewline(m[1]!);
+}
+
+/** Whole chunk is CSI-u plain Enter (`[13;1u` / `[13u`). Map to submit, not insert. */
+export function isCsiPlainEnterInput(input: string): boolean {
+  const seq = input.startsWith("\x1b") ? input.slice(1) : input;
+  return /^\[13;1u$/.test(seq) || /^\[13u$/.test(seq);
+}
+
+/** Chunk contains Shift+Enter style CSI-u (modifier > 1), not plain paste text. */
+export function inputContainsCsiModifiedNewline(input: string): boolean {
+  if (isModifiedEnterInput(input)) return true;
+  for (const m of input.matchAll(CSI_MODIFIED_ENTER_EMBED_G)) {
+    if (csiEnterModifierInsertsNewline(m[1]!)) return true;
+  }
+  return false;
+}
+
+/** Chunk contains CSI-u plain Enter (whole chunk or batched with typing). */
+export function inputContainsCsiPlainEnter(input: string): boolean {
+  if (isCsiPlainEnterInput(input)) return true;
+  return CSI_PLAIN_ENTER_EMBED.test(input);
+}
+
+/**
+ * Normalize a possibly batched stdin chunk: embedded CSI-u Shift+Enter → `\n`,
+ * CRLF → `\n`, stray C0 controls dropped. Plain `[13;1u` left to isCsiPlainEnterInput.
+ */
+export function normalizeTextInput(input: string): string {
+  if (isModifiedEnterInput(input)) return "\n";
+  if (isCsiPlainEnterInput(input)) return "";
+
+  return input
+    .replace(CSI_MODIFIED_ENTER_EMBED_G, (_m, mod: string) =>
+      csiEnterModifierInsertsNewline(mod) ? "\n" : "",
+    )
+    .replace(CSI_PLAIN_ENTER_EMBED_G, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\x00-\x08\x0b-\x1f]/g, "");
+}
+
+/**
+ * Text to insert at cursor. Echoed-prefix stripping runs only when the raw chunk
+ * contains CSI-u modified Enter (PTY batching); normal paste is untouched.
+ */
+export function textToInsertAtCursor(value: string, cursor: number, input: string): string {
+  const text = normalizeTextInput(input);
+  if (!text) return "";
+  if (!inputContainsCsiModifiedNewline(input) && !inputContainsCsiPlainEnter(input)) {
+    return text;
+  }
+  const left = value.slice(0, cursor);
+  return text.startsWith(left) ? text.slice(left.length) : text;
+}
+
+/**
  * Pure keystroke reducer — the heart of the input, kept side-effect-free so it
  * can be unit-tested by feeding it Ink-parsed keys (see tui_test.ts).
  */
@@ -104,7 +178,7 @@ export function reduceKey(
     return { value, cursor: posToOffset(lines, target, col), submit: false };
   }
 
-  if (key.backspace || key.delete) {
+  if (key.backspace) {
     if (cursor > 0)
       return {
         value: value.slice(0, cursor - 1) + value.slice(cursor),
@@ -113,18 +187,29 @@ export function reduceKey(
       };
     return keep;
   }
+  if (key.delete) {
+    if (cursor < value.length)
+      return {
+        value: value.slice(0, cursor) + value.slice(cursor + 1),
+        cursor,
+        submit: false,
+      };
+    return keep;
+  }
 
   if (key.ctrl || key.meta || key.escape) return keep;
 
   if (input) {
-    // Option+Enter reaches here as a bare CR -- Ink parses "\x1b\r" as no named key
-    // and strips the ESC, so it never sets `key.return`. Pasted text may also carry
-    // CR / CRLF. Normalize CR(LF) to LF, then drop any stray C0 control chars (e.g. a
-    // leftover ESC when several modifier+Enter presses batch into one chunk) so they
-    // never land in the text as invisible garbage.
-    const text = input
-      .replace(/\r\n?/g, "\n")
-      .replace(/[\x00-\x08\x0b-\x1f]/g, "");
+    // Batched chunks may mix typing + CSI-u Enter (newline or submit). Option+Enter
+    // arrives as bare CR with ESC stripped.
+    const text = textToInsertAtCursor(value, cursor, input);
+    if (inputContainsCsiPlainEnter(input)) {
+      if (text) {
+        const inserted = insertAt(text);
+        return { value: inserted.value, cursor: inserted.cursor, submit: true };
+      }
+      return { value, cursor, submit: true };
+    }
     if (text) return insertAt(text);
     return keep;
   }
@@ -214,7 +299,7 @@ export function cursorVisualRow(
  * Multi-line text input for Ink.
  *
  * - Enter            → submit
- * - Shift+Enter      → newline (terminals that report shift on return)
+ * - Shift+Enter      → newline (shift+return, or CSI-u `[13;2u` from Cursor/VS Code)
  * - Alt/Option+Enter → newline (reliable fallback in most terminals)
  * - Pasted newlines are kept verbatim (never auto-submit).
  *
