@@ -178,20 +178,14 @@ export function reduceKey(
     return { value, cursor: posToOffset(lines, target, col), submit: false };
   }
 
-  if (key.backspace) {
+  // Ink reports the common DEL byte (`\x7f`, macOS Backspace) as `delete`.
+  // Treat both names as backward delete; forward Delete is not distinguishable
+  // from Backspace through Ink's public `useInput` key object.
+  if (key.backspace || key.delete) {
     if (cursor > 0)
       return {
         value: value.slice(0, cursor - 1) + value.slice(cursor),
         cursor: cursor - 1,
-        submit: false,
-      };
-    return keep;
-  }
-  if (key.delete) {
-    if (cursor < value.length)
-      return {
-        value: value.slice(0, cursor) + value.slice(cursor + 1),
-        cursor,
         submit: false,
       };
     return keep;

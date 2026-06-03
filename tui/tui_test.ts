@@ -460,13 +460,13 @@ function test_multiline_paste_and_backspace() {
   assert.equal(bs.value, "a");
   assert.equal(bs.cursor, 1);
 
-  const del = feed("ab", 1, "\x1b[3~"); // forward delete 'b'
-  assert.equal(del.value, "a");
-  assert.equal(del.cursor, 1);
+  const delAtEnd = feed("ab", 2, "\x7f"); // macOS Backspace (Ink names it delete)
+  assert.equal(delAtEnd.value, "a");
+  assert.equal(delAtEnd.cursor, 1);
 
-  const del2 = feed("ab", 0, "\x7f"); // DEL byte (Ink names it delete)
-  assert.equal(del2.value, "b");
-  assert.equal(del2.cursor, 0);
+  const delAtStart = feed("ab", 0, "\x7f");
+  assert.equal(delAtStart.value, "ab");
+  assert.equal(delAtStart.cursor, 0);
 }
 
 function test_multiline_shift_enter_csi_u() {
