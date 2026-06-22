@@ -7,6 +7,31 @@ export type { SessionData, UsageRecord } from "./session.js";
 export { bashTool } from "./bash.js";
 export type { BashOptions } from "./bash.js";
 export {
+  SkillRegistry,
+  skillTool,
+  skillsCatalog,
+  renderSkill,
+  loadSkillsFromDir,
+  discoverSkills,
+  projectSkillDirs,
+  parseSkill,
+  parseFrontmatter,
+  toSkillRegistry,
+  SKILLS_DIR,
+  USER_SKILLS_DIR,
+} from "./skills.js";
+export type { SkillDef, DiscoverOptions } from "./skills.js";
+export {
+  AGENTS_MD,
+  AGENTS_MD_OVERRIDE,
+  GLOBAL_AGENTS_DIR,
+  DEFAULT_AGENTS_MD_MAX_BYTES,
+  findAgentsMd,
+  loadAgentsMd,
+  agentsMdSection,
+} from "./agents-md.js";
+export type { AgentsMdDoc, AgentsMdOptions } from "./agents-md.js";
+export {
   AgentSession,
   TRAJECTORY_DIR,
   createTrajectoryPath,

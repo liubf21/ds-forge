@@ -6,3 +6,4 @@ dist/
 
 # Local agent run artifacts (may contain machine-specific paths)
 trajectories/
+workspace/

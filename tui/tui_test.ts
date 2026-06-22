@@ -313,6 +313,8 @@ function test_session_usage_log_round_trip() {
 
   forge.save(path);
   const saved = JSON.parse(readFileSync(path, "utf-8"));
+  assert.equal("system" in saved, false);
+  assert.deepEqual(saved.messages, [{ role: "system", content: "test" }]);
   assert.equal(saved.metadata.created_at, created);
   assert.equal(saved.metadata.usage_log.length, 1);
   assert.equal(

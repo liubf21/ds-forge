@@ -1,5 +1,8 @@
 /** Shared types for ds-forge. */
 
+import type { AgentsMdOptions } from "./agents-md.js";
+import type { SkillRegistry } from "./skills.js";
+
 export interface JsonSchema {
   type: string;
   properties?: Record<string, JsonSchema>;
@@ -61,6 +64,18 @@ export interface ForgeConfig {
   baseURL?: string;
   /** V4 thinking effort. Default: "high" with tools, "off" without. */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Reusable skills: a prebuilt registry or directories to discover. Registers
+   * a `skill` tool and appends a catalog to the system prompt.
+   */
+  skills?: SkillRegistry | string[];
+  /**
+   * Load AGENTS.md project instructions into the system prompt. `true` uses
+   * project defaults; pass `{ global: true }` to include global guidance.
+   * Default: off — a plain
+   * library shouldn't read disk unasked. (`AgentSession` enables it by default.)
+   */
+  agentsMd?: boolean | AgentsMdOptions;
 }
 
 export interface ForgeLoadConfig {
@@ -69,6 +84,8 @@ export interface ForgeLoadConfig {
   baseURL?: string;
   /** Override V4 thinking effort on resume (not persisted in session JSON). */
   reasoningEffort?: ReasoningEffort;
+  /** Re-provide skills on resume (callables/registry aren't persisted). */
+  skills?: SkillRegistry | string[];
 }
 
 export interface ForgeDebugConfig {

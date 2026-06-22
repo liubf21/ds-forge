@@ -11,7 +11,6 @@ export type { UsageRecord } from "./usage.js";
 export interface SessionData {
   version: string;
   model: string;
-  system: string | null;
   messages: MessageDict[];
   tools: OpenAICompatibleToolSpec[];
   metadata: Record<string, unknown>;
@@ -20,21 +19,20 @@ export interface SessionData {
 export class Session {
   constructor(
     public model: string,
-    public system: string | null,
     public messages: MessageDict[],
     public toolSpecs: OpenAICompatibleToolSpec[],
     public metadata: Record<string, unknown> = {},
     public version: string = VERSION,
   ) {}
 
-  static fromForge(forge: Forge): Session {
-    const sysMsg = forge.context.messages[0];
-    const system =
-      sysMsg?.role === "system" ? (sysMsg.content ?? null) : null;
+  get system(): string | null {
+    const sysMsg = this.messages.find((m) => m.role === "system");
+    return sysMsg?.content ?? null;
+  }
 
+  static fromForge(forge: Forge): Session {
     return new Session(
       forge.model,
-      system,
       forge.context.toList(),
       forge.tools.toOpenAISpecs(),
       {
@@ -49,7 +47,6 @@ export class Session {
     const data: SessionData = {
       version: this.version,
       model: this.model,
-      system: this.system,
       messages: this.messages,
       tools: this.toolSpecs,
       metadata: this.metadata,
@@ -69,7 +66,6 @@ export class Session {
 
     return new Session(
       data.model ?? DEFAULT_MODEL,
-      data.system ?? null,
       data.messages,
       data.tools ?? [],
       data.metadata ?? {},

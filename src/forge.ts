@@ -10,7 +10,9 @@ import {
   buildModelExtra,
   resolveReasoningEffort,
 } from "./defaults.js";
+import { loadAgentsMd } from "./agents-md.js";
 import { Session } from "./session.js";
+import { SkillRegistry, skillTool, skillsCatalog, toSkillRegistry } from "./skills.js";
 import { ToolRegistry } from "./tools.js";
 import { parseUsage, parseUsageLog, type UsageRecord } from "./usage.js";
 import type {
@@ -45,6 +47,7 @@ export class Forge {
   readonly model: string;
   readonly client: OpenAI;
   readonly tools: ToolRegistry;
+  readonly skills?: SkillRegistry;
   readonly reasoningEffort: ReasoningEffort;
   context: Context;
   /** Cumulative API usage per model call (persisted in trajectory `metadata.usage_log`). */
@@ -74,6 +77,15 @@ export class Forge {
       this.tools.register(t);
     }
 
+    // Skills: register the `skill` tool so the model can load packs on demand.
+    if (config.skills) {
+      const registry = toSkillRegistry(config.skills);
+      if (registry.size > 0) {
+        this.skills = registry;
+        this.tools.register(skillTool(registry));
+      }
+    }
+
     this.reasoningEffort = resolveReasoningEffort(
       config.reasoningEffort,
       this.tools.size > 0,
@@ -82,8 +94,14 @@ export class Forge {
     this._createdAt = new Date().toISOString();
     this.context = new Context();
     this.context.maxTokens = this._maxTokens;
-    if (config.system) {
-      this.context.addSystem(config.system);
+
+    const catalog = this.skills ? skillsCatalog(this.skills) : "";
+    const agents = config.agentsMd
+      ? loadAgentsMd(config.agentsMd === true ? {} : config.agentsMd)
+      : "";
+    const system = [config.system, agents, catalog].filter(Boolean).join("\n\n");
+    if (system) {
+      this.context.addSystem(system);
     }
   }
 
@@ -382,10 +400,10 @@ export class Forge {
     const forge = new Forge({
       apiKey: config.apiKey,
       model: session.model,
-      system: session.system ?? undefined,
       tools: config.tools ?? [],
       baseURL: config.baseURL,
       reasoningEffort: config.reasoningEffort,
+      skills: config.skills,
     });
     forge.context = Context.fromDicts(session.messages);
     forge._createdAt =

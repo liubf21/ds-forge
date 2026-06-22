@@ -6,12 +6,15 @@
  *   npm run tui
  *   npm run tui -- --cwd /path/to/project
  *   npm run tui -- --resume trajectories/task.json
+ *   npm run tui -- --global-agents   # also load global AGENTS.md
+ *   npm run tui -- --user-skills     # also load ~/.agents/skills
+ *   npm run tui -- --no-skills       # disable project skill discovery
  */
 
 import React from "react";
 import { render } from "ink";
 import { resolve } from "node:path";
-import { AgentSession, DEFAULT_AGENT_REASONING_EFFORT, DEFAULT_MAX_TURNS, DEFAULT_MODEL, type ReasoningEffort } from "../src/index.js";
+import { AgentSession, DEFAULT_AGENT_REASONING_EFFORT, DEFAULT_MAX_TURNS, DEFAULT_MODEL, discoverSkills, type ReasoningEffort } from "../src/index.js";
 import App from "./app.js";
 
 function parseArgs(argv: string[]) {
@@ -21,11 +24,17 @@ function parseArgs(argv: string[]) {
     model: string;
     reasoningEffort: ReasoningEffort;
     maxTurns: number;
+    globalAgents: boolean;
+    userSkills: boolean;
+    noSkills: boolean;
   } = {
     cwd: process.cwd(),
     model: DEFAULT_MODEL,
     reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
     maxTurns: DEFAULT_MAX_TURNS,
+    globalAgents: false,
+    userSkills: false,
+    noSkills: false,
   };
 
   let i = 0;
@@ -52,6 +61,15 @@ function parseArgs(argv: string[]) {
       case "--max-turns":
         opts.maxTurns = parseInt(argv[++i]!, 10);
         break;
+      case "--global-agents":
+        opts.globalAgents = true;
+        break;
+      case "--user-skills":
+        opts.userSkills = true;
+        break;
+      case "--no-skills":
+        opts.noSkills = true;
+        break;
       default:
         console.error(`Unknown flag: ${argv[i]}`);
         process.exit(1);
@@ -67,11 +85,16 @@ if (!process.env.DEEPSEEK_API_KEY) {
 }
 
 const opts = parseArgs(process.argv.slice(2));
+const skills = opts.noSkills
+  ? undefined
+  : discoverSkills({ cwd: opts.cwd, includeUser: opts.userSkills });
 const session = AgentSession.open({
   cwd: opts.cwd,
   resume: opts.resume,
   model: opts.model,
   reasoningEffort: opts.reasoningEffort,
+  agentsMd: opts.globalAgents ? { global: true } : undefined,
+  skills,
 });
 
 render(<App session={session} maxTurns={opts.maxTurns} />);

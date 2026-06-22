@@ -1,9 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { loadAgentsMd } from "./agents-md.js";
 import { bashTool } from "./bash.js";
 import { Forge } from "./forge.js";
 import { codingAgentSystem } from "./system.js";
+import type { AgentsMdOptions } from "./agents-md.js";
 import type { BashOptions } from "./bash.js";
+import type { SkillRegistry } from "./skills.js";
 import type { ReasoningEffort, Tool } from "./types.js";
 
 export const TRAJECTORY_DIR = resolve(process.env.DS_FORGE_DIR ?? "./trajectories");
@@ -29,6 +32,25 @@ export interface OpenAgentSessionOptions {
   tools?: Tool[];
   bash?: BashOptions;
   apiKey?: string;
+  /** Reusable skills to expose through the `skill` tool. */
+  skills?: SkillRegistry | string[];
+  /**
+   * Load AGENTS.md into the system prompt. `true`/omitted = project scope from
+   * cwd; `false` = off; pass options (e.g. `{ global: true }`) to customize.
+   */
+  agentsMd?: boolean | AgentsMdOptions;
+}
+
+/** Compose base system prompt with AGENTS.md project instructions. */
+function composeSystem(
+  base: string,
+  cwd: string,
+  agentsMd?: boolean | AgentsMdOptions,
+): string {
+  if (agentsMd === false) return base;
+  const extra = typeof agentsMd === "object" ? agentsMd : {};
+  const agents = loadAgentsMd({ cwd, ...extra });
+  return [base, agents].filter(Boolean).join("\n\n");
 }
 
 /** System message from context, or default for cwd. */
@@ -84,6 +106,7 @@ export class AgentSession {
         tools,
         apiKey: opts.apiKey,
         reasoningEffort: opts.reasoningEffort,
+        skills: opts.skills,
       });
       if (opts.system) {
         forge.context.addSystem(opts.system);
@@ -92,7 +115,8 @@ export class AgentSession {
       return new AgentSession(forge, trajPath, cwd, system);
     }
 
-    const system = opts.system ?? codingAgentSystem(cwd);
+    const base = opts.system ?? codingAgentSystem(cwd);
+    const system = composeSystem(base, cwd, opts.agentsMd);
     const trajPath = createTrajectoryPath();
     const forge = new Forge({
       apiKey: opts.apiKey,
@@ -100,6 +124,7 @@ export class AgentSession {
       reasoningEffort: opts.reasoningEffort,
       system,
       tools,
+      skills: opts.skills,
     });
     return new AgentSession(forge, trajPath, cwd, system);
   }

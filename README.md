@@ -135,7 +135,6 @@ s.validateTools(registry);    // check tool names match registered callables
 {
   "version": "0.1.0",
   "model": "deepseek-v4-flash",
-  "system": "You are helpful.",
   "tools": [
     { "type": "function", "function": { "name": "...", "description": "...", "parameters": {} } }
   ],
@@ -143,9 +142,27 @@ s.validateTools(registry);    // check tool names match registered callables
     { "role": "system", "content": "..." },
     { "role": "user", "content": "..." }
   ],
-  "metadata": { "created_at": "...", "message_count": 4 }
+  "metadata": {
+    "created_at": "...",
+    "message_count": 4,
+    "usage_log": [
+      {
+        "turn": 0,
+        "at": "...",
+        "prompt_tokens": 1200,
+        "completion_tokens": 80,
+        "total_tokens": 1280,
+        "prompt_cache_hit_tokens": 900,
+        "prompt_cache_miss_tokens": 300
+      }
+    ]
+  }
 }
 ```
+
+`messages` is the source of truth. The system prompt is stored as the first
+`{"role":"system"}` message; top-level `system` is not part of the session
+format.
 
 ### `AgentSession`
 
@@ -163,6 +180,83 @@ session.clear();                         // new trajectory + reset context
 ```typescript
 AgentSession.open({ cwd, system: "You are a security reviewer." });
 ```
+
+### Skills
+
+Reusable instruction packs loaded from `.agents/skills/<name>/SKILL.md` (YAML frontmatter + markdown body). Uses **progressive disclosure**: the model sees a one-line catalog in its system prompt and loads a skill's full instructions on demand via an auto-registered `skill` tool — no slash commands, no prompt bloat.
+
+```
+.agents/skills/
+  code-review/
+    SKILL.md
+```
+
+```markdown
+---
+name: code-review
+description: Review code changes for security, performance, and style.
+allowed-tools: [bash]
+model: deepseek-v4-pro
+---
+Review the files in ${arguments} with focus on correctness.
+```
+
+Wire skills into a `Forge` by passing directories or a prebuilt registry:
+
+```typescript
+import { Forge, bashTool, discoverSkills } from "ds-forge";
+
+// Directories (discovered with precedence: extra dirs > project > ~/.agents/skills)
+const forge = new Forge({
+  system: "You are a code assistant.",
+  tools: [bashTool()],
+  skills: [".agents/skills"],
+});
+
+// Or a prebuilt registry
+const registry = discoverSkills({ cwd: process.cwd() });
+const forge2 = new Forge({ tools: [bashTool()], skills: registry });
+```
+
+At runtime the model calls `skill({ name: "code-review", arguments: "src/auth.ts" })`; the tool returns the rendered instructions (`${arguments}`, `${SKILL_DIR}` interpolated) for the model to follow. `allowed-tools` and `model` are advisory hints surfaced to the model.
+
+The TUI loads project skills by default from `.agents/skills` directories between `cwd` and the git root. User skills in `~/.agents/skills` are opt-in via `--user-skills`; use `--no-skills` to disable TUI skill discovery.
+
+**Frontmatter fields:** `name` (defaults to dir name), `description`, `allowed-tools` (inline `[a, b]` or block list), `model`.
+
+**API:** `discoverSkills`, `loadSkillsFromDir`, `SkillRegistry`, `parseSkill`, `parseFrontmatter`, `renderSkill`, `skillsCatalog`, `skillTool`.
+
+### AGENTS.md
+
+[AGENTS.md](https://agents.md) is the cross-vendor standard (OpenAI → Agentic AI Foundation / Linux Foundation) for project-specific agent instructions — a plain-markdown "README for agents" with no required schema. ds-forge discovers and injects it into the system prompt.
+
+Where skills are on-demand capability packs (loaded via a tool), AGENTS.md is **persistent project memory**. Discovery walks up from `cwd` to the git root, collecting every `AGENTS.md` on the chain, ordered general → specific so the nearest file carries the most weight (matching the spec's "closest AGENTS.md wins").
+
+```typescript
+import { Forge, AgentSession, loadAgentsMd } from "ds-forge";
+
+// Forge: opt-in (a library shouldn't read disk unasked)
+const forge = new Forge({ system: "You are a code assistant.", agentsMd: true });
+// or customize: agentsMd: { cwd: "/my/project", global: true }
+
+// AgentSession: on by default (coding-agent preset)
+const session = AgentSession.open({ cwd });                    // project chain
+AgentSession.open({ cwd, agentsMd: false });                   // disable
+AgentSession.open({ cwd, agentsMd: { global: true } });        // also global AGENTS.md
+
+// Standalone
+const section = loadAgentsMd({ cwd });                // formatted system-prompt block, or ""
+```
+
+**Discovery** (follows Codex's reference behavior):
+
+- Per directory, `AGENTS.override.md` wins over `AGENTS.md` (first non-empty; at most one file per directory).
+- Project scope walks the **git root → cwd** chain; if there's no git root, only `cwd` is read (no wandering into unrelated parents).
+- Global scope (`~/.agents/AGENTS.md`) is **opt-in** via `global: true` — user-global guidance should be explicit.
+- The combined section is capped at **32 KiB** (`maxBytes`); the nearest (last) doc is truncated when over the limit.
+- On `--resume`, the saved trajectory already contains the baked-in instructions, so they aren't re-read.
+
+**API:** `findAgentsMd`, `loadAgentsMd`, `agentsMdSection`, `AGENTS_MD`, `AGENTS_MD_OVERRIDE`, `DEFAULT_AGENTS_MD_MAX_BYTES`.
 
 ### `bashTool`
 
@@ -250,7 +344,7 @@ The extra `--` is required by npm: everything after it is passed to the script, 
 npx tsx --env-file-if-exists=.env tui/index.tsx --resume trajectories/task-xxx.json
 ```
 
-**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`
+**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`, `--global-agents` (also load global AGENTS.md), `--user-skills` (also load `~/.agents/skills`), `--no-skills`
 
 **In-session commands:** `/clear` (new trajectory), `/quit`, Ctrl+C
 
@@ -275,6 +369,7 @@ npm run tui         # Agent TUI (terminal chat)
 | [docs/README.zh-CN.md](docs/README.zh-CN.md) | Getting started (Chinese) |
 | [docs/deepseek-v4.md](docs/deepseek-v4.md) | DeepSeek V4 architecture, API, agent semantics (Chinese) |
 | [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md) | Architecture (Chinese) |
+| [docs/tui.md](docs/tui.md) | TUI architecture and internals (Chinese) |
 | [docs/mcp.md](docs/mcp.md) | MCP protocol (Chinese) |
 | [docs/llm-protocols.md](docs/llm-protocols.md) | LLM API protocol comparison (Chinese) |
 
