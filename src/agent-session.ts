@@ -35,8 +35,8 @@ export interface OpenAgentSessionOptions {
   /** Reusable skills to expose through the `skill` tool. */
   skills?: SkillRegistry | string[];
   /**
-   * Load AGENTS.md into the system prompt. `true`/omitted = project scope from
-   * cwd; `false` = off; pass options (e.g. `{ global: true }`) to customize.
+   * Load AGENTS.md into the system prompt. `true` = project scope from cwd;
+   * omitted/`false` = off; pass options to customize scopes.
    */
   agentsMd?: boolean | AgentsMdOptions;
 }
@@ -47,8 +47,10 @@ function composeSystem(
   cwd: string,
   agentsMd?: boolean | AgentsMdOptions,
 ): string {
-  if (agentsMd === false) return base;
-  const extra = typeof agentsMd === "object" ? agentsMd : {};
+  if (!agentsMd) return base;
+  const extra = typeof agentsMd === "object"
+    ? agentsMd
+    : { includeProject: true };
   const agents = loadAgentsMd({ cwd, ...extra });
   return [base, agents].filter(Boolean).join("\n\n");
 }

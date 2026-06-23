@@ -6,9 +6,10 @@
  *   npm run tui
  *   npm run tui -- --cwd /path/to/project
  *   npm run tui -- --resume trajectories/task.json
- *   npm run tui -- --global-agents   # also load global AGENTS.md
- *   npm run tui -- --user-skills     # also load ~/.agents/skills
- *   npm run tui -- --no-skills       # disable project skill discovery
+ *   npm run tui -- --agents          # load project AGENTS.md
+ *   npm run tui -- --global-agents   # load global AGENTS.md
+ *   npm run tui -- --skills          # load project .agents/skills
+ *   npm run tui -- --user-skills     # load ~/.agents/skills
  */
 
 import React from "react";
@@ -24,17 +25,19 @@ function parseArgs(argv: string[]) {
     model: string;
     reasoningEffort: ReasoningEffort;
     maxTurns: number;
+    projectAgents: boolean;
     globalAgents: boolean;
+    projectSkills: boolean;
     userSkills: boolean;
-    noSkills: boolean;
   } = {
     cwd: process.cwd(),
     model: DEFAULT_MODEL,
     reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
     maxTurns: DEFAULT_MAX_TURNS,
+    projectAgents: false,
     globalAgents: false,
+    projectSkills: false,
     userSkills: false,
-    noSkills: false,
   };
 
   let i = 0;
@@ -61,14 +64,17 @@ function parseArgs(argv: string[]) {
       case "--max-turns":
         opts.maxTurns = parseInt(argv[++i]!, 10);
         break;
+      case "--agents":
+        opts.projectAgents = true;
+        break;
       case "--global-agents":
         opts.globalAgents = true;
         break;
+      case "--skills":
+        opts.projectSkills = true;
+        break;
       case "--user-skills":
         opts.userSkills = true;
-        break;
-      case "--no-skills":
-        opts.noSkills = true;
         break;
       default:
         console.error(`Unknown flag: ${argv[i]}`);
@@ -85,15 +91,22 @@ if (!process.env.DEEPSEEK_API_KEY) {
 }
 
 const opts = parseArgs(process.argv.slice(2));
-const skills = opts.noSkills
-  ? undefined
-  : discoverSkills({ cwd: opts.cwd, includeUser: opts.userSkills });
+const skills = opts.projectSkills || opts.userSkills
+  ? discoverSkills({
+      cwd: opts.cwd,
+      includeProject: opts.projectSkills,
+      includeUser: opts.userSkills,
+    })
+  : undefined;
+const agentsMd = opts.projectAgents || opts.globalAgents
+  ? { includeProject: opts.projectAgents, global: opts.globalAgents }
+  : false;
 const session = AgentSession.open({
   cwd: opts.cwd,
   resume: opts.resume,
   model: opts.model,
   reasoningEffort: opts.reasoningEffort,
-  agentsMd: opts.globalAgents ? { global: true } : undefined,
+  agentsMd,
   skills,
 });
 

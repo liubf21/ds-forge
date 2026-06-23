@@ -97,7 +97,11 @@ export class Forge {
 
     const catalog = this.skills ? skillsCatalog(this.skills) : "";
     const agents = config.agentsMd
-      ? loadAgentsMd(config.agentsMd === true ? {} : config.agentsMd)
+      ? loadAgentsMd(
+          config.agentsMd === true
+            ? { includeProject: true }
+            : config.agentsMd,
+        )
       : "";
     const system = [config.system, agents, catalog].filter(Boolean).join("\n\n");
     if (system) {

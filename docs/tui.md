@@ -12,6 +12,8 @@ npm run tui -- --cwd /path/to/project              # 指定工作目录
 npm run tui -- --resume trajectories/task-xxx.json  # 恢复会话
 npm run tui -- --model deepseek-v4-pro --effort max  # 切换到 Pro 模型 + 深度推理
 npm run tui -- --max-turns 50                       # 限制最大轮次
+npm run tui -- --agents --global-agents             # 显式加载项目 + global AGENTS.md
+npm run tui -- --skills --user-skills               # 显式加载项目 + 用户 skills
 ```
 
 直接运行（跳过 npm 的 `--` 分隔符）：
@@ -31,6 +33,10 @@ npx tsx --env-file-if-exists=.env tui/index.tsx --resume trajectories/task-xxx.j
 | `--model <name>` | `deepseek-v4-flash` | 模型标识 |
 | `--effort <level>` | `high` | 推理力度：`high` / `max` / `off` |
 | `--max-turns <n>` | `DEFAULT_MAX_TURNS` | 单次提交的最大 Agent 循环轮次 |
+| `--agents` | 关 | 加载项目 AGENTS.md |
+| `--global-agents` | 关 | 加载 global AGENTS.md |
+| `--skills` | 关 | 加载项目 `.agents/skills` |
+| `--user-skills` | 关 | 加载 `~/.agents/skills` |
 
 ## 交互
 

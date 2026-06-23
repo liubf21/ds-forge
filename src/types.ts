@@ -71,9 +71,8 @@ export interface ForgeConfig {
   skills?: SkillRegistry | string[];
   /**
    * Load AGENTS.md project instructions into the system prompt. `true` uses
-   * project defaults; pass `{ global: true }` to include global guidance.
-   * Default: off — a plain
-   * library shouldn't read disk unasked. (`AgentSession` enables it by default.)
+   * project scope; pass options to select exact project/global scopes.
+   * Default: off — a plain library shouldn't read disk unasked.
    */
   agentsMd?: boolean | AgentsMdOptions;
 }

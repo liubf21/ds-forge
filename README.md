@@ -206,7 +206,7 @@ Wire skills into a `Forge` by passing directories or a prebuilt registry:
 ```typescript
 import { Forge, bashTool, discoverSkills } from "ds-forge";
 
-// Directories (discovered with precedence: extra dirs > project > ~/.agents/skills)
+// Exact directories only; no ambient project/user discovery.
 const forge = new Forge({
   system: "You are a code assistant.",
   tools: [bashTool()],
@@ -214,15 +214,23 @@ const forge = new Forge({
 });
 
 // Or a prebuilt registry
-const registry = discoverSkills({ cwd: process.cwd() });
+const registry = discoverSkills({
+  cwd: process.cwd(),
+  includeProject: true,
+  includeUser: true,
+});
 const forge2 = new Forge({ tools: [bashTool()], skills: registry });
 ```
 
 At runtime the model calls `skill({ name: "code-review", arguments: "src/auth.ts" })`; the tool returns the rendered instructions (`${arguments}`, `${SKILL_DIR}` interpolated) for the model to follow. `allowed-tools` and `model` are advisory hints surfaced to the model.
 
-The TUI loads project skills by default from `.agents/skills` directories between `cwd` and the git root. User skills in `~/.agents/skills` are opt-in via `--user-skills`; use `--no-skills` to disable TUI skill discovery.
+TUI skill discovery is fully opt-in: `--skills` loads project `.agents/skills`
+directories between `cwd` and the git root; `--user-skills` loads
+`~/.agents/skills`. Use both flags to enable both scopes.
 
-**Frontmatter fields:** `name` (defaults to dir name), `description`, `allowed-tools` (inline `[a, b]` or block list), `model`.
+Frontmatter is parsed as standard YAML, including folded multiline scalars and
+nested metadata. **Recognized fields:** `name` (defaults to dir name),
+`description`, `allowed-tools`, `model`.
 
 **API:** `discoverSkills`, `loadSkillsFromDir`, `SkillRegistry`, `parseSkill`, `parseFrontmatter`, `renderSkill`, `skillsCatalog`, `skillTool`.
 
@@ -237,15 +245,15 @@ import { Forge, AgentSession, loadAgentsMd } from "ds-forge";
 
 // Forge: opt-in (a library shouldn't read disk unasked)
 const forge = new Forge({ system: "You are a code assistant.", agentsMd: true });
-// or customize: agentsMd: { cwd: "/my/project", global: true }
+// Or select exact scopes:
+// agentsMd: { cwd: "/my/project", includeProject: true, global: true }
 
-// AgentSession: on by default (coding-agent preset)
-const session = AgentSession.open({ cwd });                    // project chain
-AgentSession.open({ cwd, agentsMd: false });                   // disable
-AgentSession.open({ cwd, agentsMd: { global: true } });        // also global AGENTS.md
+// AgentSession: off by default; enable only the scopes you want.
+const session = AgentSession.open({ cwd, agentsMd: true });
+AgentSession.open({ cwd, agentsMd: { global: true, includeProject: false } });
 
 // Standalone
-const section = loadAgentsMd({ cwd });                // formatted system-prompt block, or ""
+const section = loadAgentsMd({ cwd, includeProject: true });
 ```
 
 **Discovery** (follows Codex's reference behavior):
@@ -344,7 +352,7 @@ The extra `--` is required by npm: everything after it is passed to the script, 
 npx tsx --env-file-if-exists=.env tui/index.tsx --resume trajectories/task-xxx.json
 ```
 
-**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`, `--global-agents` (also load global AGENTS.md), `--user-skills` (also load `~/.agents/skills`), `--no-skills`
+**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`, `--agents` (load project AGENTS.md), `--global-agents` (load global AGENTS.md), `--skills` (load project skills), `--user-skills` (load `~/.agents/skills`)
 
 **In-session commands:** `/clear` (new trajectory), `/quit`, Ctrl+C
 

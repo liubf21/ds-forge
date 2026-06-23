@@ -52,17 +52,22 @@ async function main() {
 
   await check("findAgentsMd: none → empty", () => {
     const dir = mkdtempSync(join(tmpdir(), "ds-forge-agents-empty-"));
-    assert.deepStrictEqual(findAgentsMd({ cwd: dir, global: false }), []);
+    assert.deepStrictEqual(findAgentsMd({ cwd: dir, includeProject: true }), []);
   });
 
   await check("findAgentsMd: walks up to git root, general → specific", () => {
     const { repo, api } = repoFixture();
-    const docs = findAgentsMd({ cwd: api, global: false });
+    const docs = findAgentsMd({ cwd: api, includeProject: true });
     assert.strictEqual(docs.length, 2);
     // root first (general), nearest last (specific)
     assert.ok(docs[0]!.path.startsWith(repo) && docs[0]!.content.includes("Root"));
     assert.ok(docs[1]!.content.includes("Fastify"));
     assert.ok(docs[1]!.dir === api);
+  });
+
+  await check("findAgentsMd: no scope enabled → empty", () => {
+    const { api } = repoFixture();
+    assert.deepStrictEqual(findAgentsMd({ cwd: api }), []);
   });
 
   await check("findAgentsMd: no git → only cwd, no upward wander", () => {
@@ -71,7 +76,7 @@ async function main() {
     mkdirSync(sub, { recursive: true });
     writeFileSync(join(root, "AGENTS.md"), "ROOT-LEVEL");
     writeFileSync(join(sub, "AGENTS.md"), "SUB-LEVEL");
-    const docs = findAgentsMd({ cwd: sub, global: false });
+    const docs = findAgentsMd({ cwd: sub, includeProject: true });
     assert.strictEqual(docs.length, 1);
     assert.strictEqual(docs[0]!.content, "SUB-LEVEL");
   });
@@ -80,12 +85,12 @@ async function main() {
     const repo = mkdtempSync(join(tmpdir(), "ds-forge-agents-blank-"));
     mkdirSync(join(repo, ".git"), { recursive: true });
     writeFileSync(join(repo, "AGENTS.md"), "   \n  \n");
-    assert.deepStrictEqual(findAgentsMd({ cwd: repo, global: false }), []);
+    assert.deepStrictEqual(findAgentsMd({ cwd: repo, includeProject: true }), []);
   });
 
   await check("agentsMdSection: relative labels + precedence note", () => {
     const { repo, api } = repoFixture();
-    const docs = findAgentsMd({ cwd: api, global: false });
+    const docs = findAgentsMd({ cwd: api, includeProject: true });
     const section = agentsMdSection(docs, api);
     assert.ok(section.includes("## Project instructions (AGENTS.md)"));
     assert.ok(section.includes("Fastify"));
@@ -103,7 +108,7 @@ async function main() {
     mkdirSync(join(repo, ".git"), { recursive: true });
     writeFileSync(join(repo, "AGENTS.md"), "BASE");
     writeFileSync(join(repo, AGENTS_MD_OVERRIDE), "OVERRIDE");
-    const docs = findAgentsMd({ cwd: repo, global: false });
+    const docs = findAgentsMd({ cwd: repo, includeProject: true });
     assert.strictEqual(docs.length, 1, "one file per directory");
     assert.strictEqual(docs[0]!.content, "OVERRIDE");
     assert.ok(docs[0]!.path.endsWith(AGENTS_MD_OVERRIDE));
@@ -119,7 +124,7 @@ async function main() {
     const prev = process.env.DS_FORGE_AGENTS_HOME;
     process.env.DS_FORGE_AGENTS_HOME = home;
     try {
-      const docs = findAgentsMd({ cwd: proj, global: true });
+      const docs = findAgentsMd({ cwd: proj, global: true, includeProject: true });
       // global override first, then project
       assert.ok(docs.some((d) => d.content === "GLOBAL-OVERRIDE"));
       assert.ok(!docs.some((d) => d.content === "GLOBAL-BASE"));
@@ -145,7 +150,7 @@ async function main() {
 
   await check("loadAgentsMd: discover + format", () => {
     const { api } = repoFixture();
-    const text = loadAgentsMd({ cwd: api, global: false });
+    const text = loadAgentsMd({ cwd: api, includeProject: true });
     assert.ok(text.includes("Fastify"));
     assert.ok(text.includes("Root"));
   });
@@ -162,7 +167,7 @@ async function main() {
     const on = new Forge({
       apiKey: "k",
       system: "BASE",
-      agentsMd: { cwd: api, global: false },
+      agentsMd: { cwd: api, includeProject: true },
     });
     const sys = on.context.messages.find((m) => m.role === "system")?.content ?? "";
     assert.ok(sys.startsWith("BASE"));
@@ -170,12 +175,13 @@ async function main() {
     assert.ok(sys.includes("## Project instructions (AGENTS.md)"));
   });
 
-  await check("AgentSession: loads AGENTS.md by default, clear() round-trips", () => {
+  await check("AgentSession: agentsMd:true loads project and survives clear()", () => {
     const { repo, api } = repoFixture();
     const session = AgentSession.open({
       cwd: api,
       apiKey: "k",
       system: "CODER",
+      agentsMd: true,
     });
     const sys1 = session.forge.context.messages.find((m) => m.role === "system");
     assert.ok(sys1?.content?.includes("CODER"));
@@ -188,7 +194,7 @@ async function main() {
     void repo;
   });
 
-  await check("AgentSession: agentsMd options enable global ~/.agents-style dir", () => {
+  await check("AgentSession: agentsMd options support global-only scope", () => {
     const home = mkdtempSync(join(tmpdir(), "ds-forge-as-agents-home-"));
     writeFileSync(join(home, "AGENTS.md"), "GLOBAL-AGENTS-RULE");
     const repo = mkdtempSync(join(tmpdir(), "ds-forge-as-proj-"));
@@ -202,24 +208,23 @@ async function main() {
         cwd: repo,
         apiKey: "k",
         system: "CODER",
-        agentsMd: { global: true },
+        agentsMd: { global: true, includeProject: false },
       });
       const sys = session.forge.context.messages.find((m) => m.role === "system");
       assert.ok(sys?.content?.includes("GLOBAL-AGENTS-RULE"), "global loaded");
-      assert.ok(sys?.content?.includes("REPO-RULE"), "project loaded");
+      assert.ok(!sys?.content?.includes("REPO-RULE"), "project not loaded");
     } finally {
       if (prev === undefined) delete process.env.DS_FORGE_AGENTS_HOME;
       else process.env.DS_FORGE_AGENTS_HOME = prev;
     }
   });
 
-  await check("AgentSession: agentsMd:false disables loading", () => {
+  await check("AgentSession: AGENTS.md is off by default", () => {
     const { api } = repoFixture();
     const session = AgentSession.open({
       cwd: api,
       apiKey: "k",
       system: "CODER",
-      agentsMd: false,
     });
     const sys = session.forge.context.messages.find((m) => m.role === "system");
     assert.strictEqual(sys?.content, "CODER");

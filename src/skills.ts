@@ -20,6 +20,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { tool } from "./tools.js";
 import type { Tool } from "./types.js";
 
@@ -47,77 +48,36 @@ export const USER_SKILLS_DIR = ".agents/skills";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
-function stripQuotes(s: string): string {
-  const t = s.trim();
-  if (
-    (t.startsWith('"') && t.endsWith('"')) ||
-    (t.startsWith("'") && t.endsWith("'"))
-  ) {
-    return t.slice(1, -1);
-  }
-  return t;
-}
-
-function parseInlineArray(s: string): string[] {
-  return s
-    .slice(1, -1)
-    .split(",")
-    .map((x) => stripQuotes(x))
-    .filter((x) => x.length > 0);
-}
-
-/**
- * Parse a minimal YAML subset: `key: scalar`, inline arrays `key: [a, b]`, and
- * block arrays (`key:` then `  - item` lines). Sufficient for SKILL.md headers.
- */
+/** Parse standard YAML frontmatter and return the markdown body separately. */
 export function parseFrontmatter(text: string): {
-  data: Record<string, string | string[]>;
+  data: Record<string, unknown>;
   body: string;
 } {
   const m = FRONTMATTER_RE.exec(text);
   if (!m) return { data: {}, body: text };
 
-  const data: Record<string, string | string[]> = {};
-  const lines = m[1]!.split(/\r?\n/);
-  let listKey: string | null = null;
-
-  for (const line of lines) {
-    if (!line.trim() || line.trim().startsWith("#")) continue;
-
-    const item = /^\s*-\s+(.*)$/.exec(line);
-    if (item && listKey) {
-      (data[listKey] as string[]).push(stripQuotes(item[1]!));
-      continue;
-    }
-
-    const kv = /^([\w-]+):\s*(.*)$/.exec(line);
-    if (!kv) continue;
-    const key = kv[1]!;
-    const rest = kv[2]!.trim();
-
-    if (rest === "") {
-      data[key] = [];
-      listKey = key;
-    } else if (rest.startsWith("[") && rest.endsWith("]")) {
-      data[key] = parseInlineArray(rest);
-      listKey = null;
-    } else {
-      data[key] = stripQuotes(rest);
-      listKey = null;
-    }
+  const parsed: unknown = parseYaml(m[1]!);
+  if (parsed == null) return { data: {}, body: (m[2] ?? "").trim() };
+  if (typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("SKILL.md frontmatter must be a YAML mapping");
   }
-
-  return { data, body: (m[2] ?? "").trim() };
+  return {
+    data: parsed as Record<string, unknown>,
+    body: (m[2] ?? "").trim(),
+  };
 }
 
-function asArray(v: string | string[] | undefined): string[] | undefined {
+function asArray(v: unknown): string[] | undefined {
   if (v === undefined) return undefined;
-  return Array.isArray(v) ? v : [v];
+  if (typeof v === "string") return [v];
+  if (Array.isArray(v) && v.every((item) => typeof item === "string")) {
+    return v;
+  }
+  return undefined;
 }
 
-function asString(v: string | string[] | undefined): string | undefined {
-  if (v === undefined) return undefined;
-  return Array.isArray(v) ? v.join(", ") : v;
+function asString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
 }
 
 /** Build a SkillDef from raw markdown. Name defaults to the directory name. */
@@ -186,9 +146,9 @@ export function loadSkillsFromDir(dir: string): SkillDef[] {
 export interface DiscoverOptions {
   /** Project directory; scans `.agents/skills` from cwd up to git root. */
   cwd?: string;
-  /** Also scan `~/.agents/skills`. Default: true. */
+  /** Also scan `~/.agents/skills`. Default: false. */
   includeUser?: boolean;
-  /** Also scan project `.agents/skills` directories. Default: true. */
+  /** Also scan project `.agents/skills` directories. Default: false. */
   includeProject?: boolean;
   /** Extra directories to scan (highest precedence, in order). */
   dirs?: string[];
@@ -225,10 +185,10 @@ export function projectSkillDirs(cwd: string = process.cwd()): string[] {
 export function discoverSkills(opts: DiscoverOptions = {}): SkillRegistry {
   const cwd = opts.cwd ?? process.cwd();
   const layers: string[] = [...(opts.dirs ?? [])];
-  if (opts.includeProject !== false) {
+  if (opts.includeProject === true) {
     layers.push(...projectSkillDirs(cwd));
   }
-  if (opts.includeUser !== false) {
+  if (opts.includeUser === true) {
     layers.push(join(homedir(), USER_SKILLS_DIR));
   }
 
@@ -310,7 +270,7 @@ export function skillsCatalog(registry: SkillRegistry): string {
   if (registry.size === 0) return "";
   const lines = registry
     .list()
-    .map((s) => `- ${s.name}: ${s.description}`)
+    .map((s) => `- ${s.name}: ${s.description.replace(/\s+/g, " ").trim()}`)
     .join("\n");
   return `## Available skills
 
@@ -364,7 +324,11 @@ export function skillTool(registry: SkillRegistry): Tool {
         typeof rawArgs === "string" ? rawArgs : undefined,
       );
 
-      const header: string[] = [`# Skill: ${skill.name}`];
+      const header: string[] = [
+        `# Skill: ${skill.name}`,
+        `Skill directory: ${skill.dir}`,
+        "Resolve relative paths in these instructions against the skill directory.",
+      ];
       if (skill.allowedTools?.length) {
         header.push(`Intended tools: ${skill.allowedTools.join(", ")}`);
       }

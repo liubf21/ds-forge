@@ -39,6 +39,8 @@ export interface AgentsMdDoc {
 export interface AgentsMdOptions {
   /** Project directory to discover from. Default: process.cwd(). */
   cwd?: string;
+  /** Load project AGENTS.md files from git root to cwd. Default: false. */
+  includeProject?: boolean;
   /**
    * Also load one global AGENTS.md from ~/.agents.
    * Default: false — reading user-global guidance unasked is overreach.
@@ -111,11 +113,13 @@ export function findAgentsMd(opts: AgentsMdOptions = {}): AgentsMdDoc[] {
     }
   }
 
-  for (const dir of projectDirs) {
-    const d = readDirDoc(dir);
-    if (d && !seen.has(d.path)) {
-      seen.add(d.path);
-      docs.push(d);
+  if (opts.includeProject === true) {
+    for (const dir of projectDirs) {
+      const d = readDirDoc(dir);
+      if (d && !seen.has(d.path)) {
+        seen.add(d.path);
+        docs.push(d);
+      }
     }
   }
   return docs;
