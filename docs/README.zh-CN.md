@@ -62,7 +62,7 @@ const forge = new Forge({
   reasoningEffort?: "high" | "max" | "off";  // 默认：有 tools 时 "high"，否则 "off"
   system?: string;       // 系统提示词
   tools?: Tool[];        // 已注册工具
-  maxTokens?: number;    // 默认：128_000
+  maxTokens?: number;    // 默认：900_000；超过后一次截断到 600_000
   baseURL?: string;      // 默认："https://api.deepseek.com/v1"
 });
 ```

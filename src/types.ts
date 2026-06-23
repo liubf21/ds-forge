@@ -41,7 +41,7 @@ export interface ToolDef {
 }
 
 export interface Tool extends ToolDef {
-  execute: (args: Record<string, unknown>, signal?: AbortSignal) => string | Promise<string>;
+  execute: (args: Record<string, unknown>, signal?: AbortSignal) => unknown | Promise<unknown>;
 }
 
 export interface OpenAICompatibleToolSpec {

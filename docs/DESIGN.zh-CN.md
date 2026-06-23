@@ -103,7 +103,7 @@ ctx.tokenCounter = (msgs) => myAccurateCounter(msgs);
 
 ### 6. 截断是 FIFO，保留 system
 
-每次 API 调用前，`truncate()` 删除最旧非 system 消息，直到估算 token 数 fit `maxTokens`。若只剩 system 仍超限，则抛错——应缩短 system prompt 或提高 `maxTokens`。默认 128K 保守预算；长轨迹可显式调高 `maxTokens`。
+每次 API 调用前，`truncate()` 检查估算 token 数。默认采用滞回机制：超过 900K 高水位后，按完整对话 turn 删除最旧非 system 消息，直到不超过 600K 低水位；一次释放约 1/3 窗口，避免临界区每轮截断造成 prefix cache churn。自定义 `maxTokens` 时低水位自动取其 `2/3`。若只剩 system 仍超限，则抛错——应缩短 system prompt 或提高 `maxTokens`。
 
 ### 7. `bashTool` 是完整 shell，不是沙箱
 

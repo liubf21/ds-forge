@@ -5,7 +5,10 @@ import type { ReasoningEffort } from "./types.js";
 export const DEFAULT_MODEL = "deepseek-v4-flash";
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MAX_TURNS = 2000;
-export const DEFAULT_MAX_TOKENS = 128_000;
+/** Soft input budget for V4's 1M context window; leaves room for tools and estimation error. */
+export const DEFAULT_MAX_TOKENS = 900_000;
+/** After crossing the high watermark, evict enough history to restore cache-stable headroom. */
+export const DEFAULT_TRUNCATE_TARGET_TOKENS = Math.floor(DEFAULT_MAX_TOKENS * 2 / 3);
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Sentinel returned when agent loop exhausts maxTurns. */

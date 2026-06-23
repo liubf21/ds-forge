@@ -33,7 +33,10 @@
     "typecheck:tui": "tsc --noEmit -p tsconfig.tui.json",
     "demo": "tsx --env-file-if-exists=.env examples/demo.ts",
     "demo:mcp": "tsx --env-file-if-exists=.env examples/mcp_demo.ts",
-    "test": "tsx examples/mcp_test.ts && tsx examples/skills_test.ts && tsx examples/agents_md_test.ts && tsx tui/tui_test.ts",
+    "test": "npm run test:unit && npm run test:legacy",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "test:legacy": "tsx examples/mcp_test.ts && tsx examples/skills_test.ts && tsx examples/agents_md_test.ts && tsx tui/tui_test.ts",
     "tui": "tsx --env-file-if-exists=.env tui/index.tsx",
     "dev": "tsx --env-file-if-exists=.env"
   },
@@ -47,6 +50,10 @@
     "ink": "^5.2.1",
     "react": "^18.3.1",
     "tsx": "^4.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "3.2.6"
+  },
+  "overrides": {
+    "vite": "6.4.3"
   }
 }

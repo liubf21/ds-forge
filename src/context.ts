@@ -1,4 +1,7 @@
-import { DEFAULT_MAX_TOKENS } from "./defaults.js";
+import {
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TRUNCATE_TARGET_TOKENS,
+} from "./defaults.js";
 import type { MessageDict, ToolCall } from "./types.js";
 
 export type { MessageDict };
@@ -97,6 +100,18 @@ export class Context {
   messages: MessageObj[] = [];
   tokenCounter: (msgs: MessageDict[]) => number = defaultTokenCounter;
   maxTokens: number = DEFAULT_MAX_TOKENS;
+  private _truncateTargetTokens?: number;
+
+  get truncateTargetTokens(): number {
+    return this._truncateTargetTokens
+      ?? (this.maxTokens === DEFAULT_MAX_TOKENS
+        ? DEFAULT_TRUNCATE_TARGET_TOKENS
+        : Math.floor(this.maxTokens * 2 / 3));
+  }
+
+  set truncateTargetTokens(value: number) {
+    this._truncateTargetTokens = value;
+  }
 
   add(message: MessageObj): void {
     this.messages.push(message);
@@ -141,16 +156,36 @@ export class Context {
 
   truncate(maxTokens?: number): void {
     const limit = maxTokens ?? this.maxTokens;
+    if (this.tokenCount() <= limit) return;
 
-    while (this.tokenCount() > limit) {
+    // The managed/default path uses hysteresis: cross the high watermark once,
+    // then reclaim one third of the budget. An explicit limit preserves the
+    // public method's original "fit this limit" behavior.
+    const target = maxTokens === undefined
+      ? Math.min(this.truncateTargetTokens, limit)
+      : limit;
+
+    while (this.tokenCount() > target) {
       const idx = this.messages.findIndex((m) => m.role !== "system");
       if (idx === -1) {
         throw new Error(
-          `Context exceeds maxTokens (${limit}): only system message(s) remain (~${this.tokenCount()} tokens). ` +
+          `Context exceeds truncate target (${target}): only system message(s) remain (~${this.tokenCount()} tokens). ` +
             "Shorten the system prompt or raise maxTokens.",
         );
       }
-      this.messages.splice(idx, 1);
+
+      // Drop a complete conversation turn. Removing only the oldest message can
+      // leave an assistant tool call without its tool result (or vice versa),
+      // which produces an invalid request on the next model call.
+      let end = idx + 1;
+      while (
+        end < this.messages.length &&
+        this.messages[end]!.role !== "user" &&
+        this.messages[end]!.role !== "system"
+      ) {
+        end++;
+      }
+      this.messages.splice(idx, end - idx);
     }
   }
 

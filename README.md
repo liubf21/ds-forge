@@ -52,7 +52,7 @@ const forge = new Forge({
   reasoningEffort?: "high" | "max" | "off";  // default: "high" with tools, "off" without
   system?: string;       // system prompt
   tools?: Tool[];        // registered tools
-  maxTokens?: number;    // default: 128_000
+  maxTokens?: number;    // default: 900_000; crossing it truncates to 600_000
   baseURL?: string;      // default: "https://api.deepseek.com/v1"
 });
 ```
