@@ -7,6 +7,19 @@ export type { SessionData, UsageRecord } from "./session.js";
 export { bashTool } from "./bash.js";
 export type { BashOptions } from "./bash.js";
 export {
+  BUILTIN_TOOL_NAMES,
+  builtinTools,
+  isBuiltinToolName,
+  parseToolNames,
+} from "./builtin-tools.js";
+export type { BuiltinToolName, BuiltinToolsOptions } from "./builtin-tools.js";
+export { readTool } from "./read.js";
+export type { ReadOptions } from "./read.js";
+export { writeTool } from "./write.js";
+export type { WriteOptions } from "./write.js";
+export { editTool } from "./edit.js";
+export type { EditOptions } from "./edit.js";
+export {
   SkillRegistry,
   skillTool,
   skillsCatalog,
