@@ -52,6 +52,8 @@ export {
 } from "./agent-session.js";
 export type { OpenAgentSessionOptions } from "./agent-session.js";
 export { codingAgentSystem } from "./system.js";
+export { TEMPLATES_DIR, resolveTemplatePath, loadTemplate, renderTemplate } from "./templates.js";
+export type { ResolveTemplateOptions } from "./templates.js";
 export { ForgeError } from "./types.js";
 export {
   DEFAULT_MODEL,

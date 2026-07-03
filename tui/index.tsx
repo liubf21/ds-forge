@@ -10,12 +10,13 @@
  *   npm run tui -- --global-agents   # load global AGENTS.md
  *   npm run tui -- --skills          # load project .agents/skills
  *   npm run tui -- --user-skills     # load ~/.agents/skills
+ *   npm run tui -- --template blog   # load templates/blog.md as the system prompt
  */
 
 import React from "react";
 import { render } from "ink";
 import { resolve } from "node:path";
-import { AgentSession, DEFAULT_AGENT_REASONING_EFFORT, DEFAULT_MAX_TURNS, DEFAULT_MODEL, discoverSkills, type ReasoningEffort } from "../src/index.js";
+import { AgentSession, DEFAULT_AGENT_REASONING_EFFORT, DEFAULT_MAX_TURNS, DEFAULT_MODEL, discoverSkills, loadTemplate, type ReasoningEffort } from "../src/index.js";
 import App from "./app.js";
 
 function parseArgs(argv: string[]) {
@@ -29,6 +30,7 @@ function parseArgs(argv: string[]) {
     globalAgents: boolean;
     projectSkills: boolean;
     userSkills: boolean;
+    template?: string;
   } = {
     cwd: process.cwd(),
     model: DEFAULT_MODEL,
@@ -76,6 +78,10 @@ function parseArgs(argv: string[]) {
       case "--user-skills":
         opts.userSkills = true;
         break;
+      case "--template":
+      case "-T":
+        opts.template = argv[++i];
+        break;
       default:
         console.error(`Unknown flag: ${argv[i]}`);
         process.exit(1);
@@ -91,6 +97,12 @@ if (!process.env.DEEPSEEK_API_KEY) {
 }
 
 const opts = parseArgs(process.argv.slice(2));
+
+// A template document replaces the default coding-agent system prompt.
+const system = opts.template
+  ? loadTemplate(opts.template, { cwd: opts.cwd })
+  : undefined;
+
 const skills = opts.projectSkills || opts.userSkills
   ? discoverSkills({
       cwd: opts.cwd,
@@ -106,6 +118,7 @@ const session = AgentSession.open({
   resume: opts.resume,
   model: opts.model,
   reasoningEffort: opts.reasoningEffort,
+  system,
   agentsMd,
   skills,
 });

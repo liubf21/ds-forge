@@ -352,13 +352,34 @@ The extra `--` is required by npm: everything after it is passed to the script, 
 npx tsx --env-file-if-exists=.env tui/index.tsx --resume trajectories/task-xxx.json
 ```
 
-**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`, `--agents` (load project AGENTS.md), `--global-agents` (load global AGENTS.md), `--skills` (load project skills), `--user-skills` (load `~/.agents/skills`)
+**CLI flags:** `--cwd`, `--resume <path>`, `--model`, `--max-turns`, `--agents` (load project AGENTS.md), `--global-agents` (load global AGENTS.md), `--skills` (load project skills), `--user-skills` (load `~/.agents/skills`), `--template <name>` (load a system-prompt template)
 
 **In-session commands:** `/clear` (new trajectory), `/quit`, Ctrl+C
 
 **Trajectories:** saved to `./trajectories/` by default (override with `DS_FORGE_DIR`). A new `task-<timestamp>.json` is created on start; the file is updated after each turn and on exit. The header shows the current filename.
 
 See also `examples/agent.ts` for a non-interactive CLI with the same persistence model.
+
+### Agentic Writing templates
+
+`--template <name>` loads a markdown document and uses it as the **system prompt**, replacing the default coding-agent persona. This turns the TUI into an agent for any role a document can describe — writing, reviewing, research — while keeping bash, skills, and AGENTS.md configured.
+
+Drop a template in the repo (relative to `cwd`):
+
+```
+templates/
+  blog.md        # --template blog
+  report.md      # --template report
+```
+
+```bash
+npm run tui -- --effort max --global-agents --user-skills \
+  --cwd /path/to/project --template blog
+```
+
+Resolution for `--template <name>`: an explicit path (`name` contains `/` or ends in `.md`) is used as-is relative to `cwd`; otherwise `templates/<name>.md`, then `templates/<name>/SP.md`. The whole file becomes the SP — no required schema or frontmatter. `${cwd}` and other `${name}` placeholders are substituted from `--cwd` and optional `vars` when using `loadTemplate()`. A sample lives at `templates/writing.md`.
+
+**API:** `loadTemplate`, `renderTemplate`, `resolveTemplatePath`, `TEMPLATES_DIR`.
 
 ## Running the demo
 
